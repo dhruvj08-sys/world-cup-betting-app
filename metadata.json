@@ -1,0 +1,6 @@
+{
+  "name": "World Cup Pool System",
+  "description": "Private World Cup pool system with live fixtures, predictions, tracking, and leaderboard.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
