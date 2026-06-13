@@ -64,7 +64,7 @@ export default function App() {
       await updateProfile(userCredential.user, {
         displayName: guestName.trim()
       });
-      setUser({ ...userCredential.user, displayName: guestName.trim() } as User); // Optimistic update
+      setUser(userCredential.user);
     } catch (error: any) {
       console.error('Guest sign-in failed:', error);
       setAuthError('Could not join as guest.');
