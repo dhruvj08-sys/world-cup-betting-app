@@ -412,10 +412,12 @@ app.post("/api/webhook/sports-data", express.json(), async (req: express.Request
 
 // Cron: Update live scores from API-Football
 app.get("/api/cron/update-scores", async (req, res) => {
-  // Verify cron secret
   const authHeader = req.headers.authorization;
   const cronSecret = process.env.CRON_SECRET;
-  if (cronSecret && (!authHeader || authHeader !== `Bearer ${cronSecret}`)) {
+  if (!cronSecret) {
+    return res.status(500).json({ error: "CRON_SECRET not configured" });
+  }
+  if (!authHeader || authHeader !== `Bearer ${cronSecret}`) {
     return res.status(401).json({ error: "Unauthorized" });
   }
 
@@ -487,6 +489,9 @@ app.get("/api/cron/update-scores", async (req, res) => {
 app.get("/api/finance/:roomId", requireAuth, async (req: AuthRequest, res) => {
   try {
     const roomId = parseInt(req.params.roomId);
+    const membership = await db.select().from(roomMembers).where(and(eq(roomMembers.roomId, roomId), eq(roomMembers.userId, req.dbUser.id))).limit(1);
+    if (membership.length === 0) return res.status(403).json({ error: "Not a member of this room" });
+
     const members = await db.select({
       userId: users.id,
       displayName: users.displayName,
@@ -535,6 +540,9 @@ app.post("/api/admin/finance", requireAuth, async (req: AuthRequest, res) => {
 app.get("/api/finance/:roomId/summary", requireAuth, async (req: AuthRequest, res) => {
   try {
     const roomId = parseInt(req.params.roomId);
+    const membership = await db.select().from(roomMembers).where(and(eq(roomMembers.roomId, roomId), eq(roomMembers.userId, req.dbUser.id))).limit(1);
+    if (membership.length === 0) return res.status(403).json({ error: "Not a member of this room" });
+
     const members = await db.select({
       hasPaid: roomMembers.hasPaid,
       amountPaid: roomMembers.amountPaid,
