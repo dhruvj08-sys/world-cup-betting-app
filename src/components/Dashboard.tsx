@@ -52,7 +52,6 @@ export default function Dashboard({ user, auth }: DashboardProps) {
   const [activeTab, setActiveTab] = useState('dashboard');
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
   const [loading, setLoading] = useState(true);
-  const [paying, setPaying] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [selectedStage, setSelectedStage] = useState<string>('all');
   const [selectedGroup, setSelectedGroup] = useState<string>('all');
@@ -179,29 +178,8 @@ export default function Dashboard({ user, auth }: DashboardProps) {
     }
   }, [activeTab, room, user]);
 
-  const handlePayment = async () => {
-    setPaying(true);
-    try {
-      const token = await user.getIdToken();
-      const res = await fetch('/api/payment/mock-stripe', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${token}`
-        },
-        body: JSON.stringify({ roomId: room?.id })
-      });
-      if (res.ok) {
-        setRoom(prev => prev ? { ...prev, hasPaid: true } : prev);
-        showToast('Payment successful! Welcome to the pool.', 'success');
-      } else {
-        throw new Error('Payment failed');
-      }
-    } catch (e: any) {
-      showToast(e.message, 'error');
-    } finally {
-      setPaying(false);
-    }
+  const dismissPaymentBanner = () => {
+    setRoom(prev => prev ? { ...prev, hasPaid: true } : prev);
   };
 
   const togglePin = (matchId: number) => {
@@ -411,22 +389,21 @@ export default function Dashboard({ user, auth }: DashboardProps) {
             <div className="absolute inset-0 bg-black/80 backdrop-blur-md"></div>
             <div className="relative bg-surface-card border border-brand/30 shadow-[0_0_40px_var(--color-brand-muted)] rounded-3xl p-8 max-w-sm w-full flex flex-col items-center text-center animate-in zoom-in-95 duration-300">
                <div className="w-16 h-16 bg-brand/20 text-brand rounded-2xl flex items-center justify-center mb-6 shadow-inner">
-                  <Trophy className="w-8 h-8" />
+                  <DollarSign className="w-8 h-8" />
                </div>
-               <h2 className="text-2xl font-black font-display uppercase tracking-tighter text-white mb-2">Join The Premium Pool</h2>
-               <p className="text-sm text-slate-400 font-medium mb-8">Pay the $10 entry fee to unlock the dashboard, make predictions, and compete for the prize pool.</p>
-               <button 
-                 onClick={handlePayment} 
-                 disabled={paying}
+               <h2 className="text-2xl font-black font-display uppercase tracking-tighter text-white mb-2">Buy-In Required</h2>
+               <p className="text-sm text-slate-400 font-medium mb-6">Pay the pool admin directly to enter. Once confirmed, your status will be updated in the Finance tab.</p>
+               <div className="w-full bg-surface-base border border-surface-border rounded-xl p-4 mb-6 text-left">
+                 <div className="text-[10px] uppercase font-black tracking-widest text-slate-500 mb-1">Amount</div>
+                 <div className="text-xl font-black text-white">$30 <span className="text-sm text-slate-500 font-bold">per person</span></div>
+               </div>
+               <button
+                 onClick={dismissPaymentBanner}
                  className="w-full bg-brand text-black font-black uppercase tracking-widest text-sm py-4 rounded-xl hover:shadow-[0_0_20px_var(--color-brand-muted)] transition-all flex items-center justify-center gap-2"
                >
-                 {paying ? (
-                   <span className="animate-pulse">Processing...</span>
-                 ) : (
-                   <>Pay $10 with Stripe <ArrowUpRight className="w-4 h-4" /></>
-                 )}
+                 Got it, continue to pool
                </button>
-               <div className="text-[10px] text-slate-500 uppercase tracking-widest mt-4 font-bold">Secure mock payment</div>
+               <div className="text-[10px] text-slate-500 uppercase tracking-widest mt-4 font-bold">Admin tracks all payments</div>
             </div>
           </div>
         )}
