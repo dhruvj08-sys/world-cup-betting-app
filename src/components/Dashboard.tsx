@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { User, Auth } from 'firebase/auth';
 import { format, formatDistanceToNow, isPast } from 'date-fns';
-import { LogOut, Home, Calendar, Trophy, Zap, Menu, X, ArrowUpRight, ArrowDownRight, Scale, User as UserIcon, Database, Settings, Pin, Flame, MessageSquare } from 'lucide-react';
+import { LogOut, Home, Calendar, Trophy, Zap, Menu, X, ArrowUpRight, ArrowDownRight, Scale, User as UserIcon, Database, Settings, Pin, Flame, MessageSquare, DollarSign, Check, XCircle } from 'lucide-react';
 import MatchCard from './MatchCard';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
@@ -45,17 +45,21 @@ export default function Dashboard({ user, auth }: DashboardProps) {
   }, [lockingMatches]);
   const [leaderboard, setLeaderboard] = useState<LeaderboardEntry[]>([]);
   const [audits, setAudits] = useState<AuditLog[]>([]);
+  const [feedEvents, setFeedEvents] = useState<any[]>([]);
   const [pinnedMatches, setPinnedMatches] = useState<number[]>(() => {
     try { return JSON.parse(localStorage.getItem('pinnedMatches') || '[]'); } catch { return []; }
   });
   const [activeTab, setActiveTab] = useState('dashboard');
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
   const [loading, setLoading] = useState(true);
+  const [paying, setPaying] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [selectedStage, setSelectedStage] = useState<string>('all');
   const [selectedGroup, setSelectedGroup] = useState<string>('all');
   const [toast, setToast] = useState<{ message: string, type: 'success' | 'error' } | null>(null);
   const [selectedMatch, setSelectedMatch] = useState<Match | null>(null);
+  const [financeData, setFinanceData] = useState<Array<{ userId: number; displayName: string | null; avatarUrl: string | null; hasPaid: boolean; amountPaid: number; joinedAt: string }>>([]);
+  const [financeSummary, setFinanceSummary] = useState<{ totalMembers: number; paidCount: number; unpaidCount: number; potTotal: number; defaultBuyIn: number } | null>(null);
 
   const showToast = (message: string, type: 'success' | 'error' = 'success') => {
     setToast({ message, type });
@@ -138,6 +142,68 @@ export default function Dashboard({ user, auth }: DashboardProps) {
     localStorage.setItem('pinnedMatches', JSON.stringify(pinnedMatches));
   }, [pinnedMatches]);
 
+  useEffect(() => {
+    const fetchFeed = async () => {
+      try {
+        const token = await user.getIdToken();
+        const res = await fetch(`/api/feed/${room?.id}`, {
+          headers: { Authorization: `Bearer ${token}` }
+        });
+        if (res.ok) {
+          const data = await res.json();
+          setFeedEvents(data);
+        }
+      } catch (e) {}
+    };
+    if (activeTab === 'feed' && room) {
+      fetchFeed();
+    }
+  }, [activeTab, room, user]);
+
+  const fetchFinance = async () => {
+    if (!room) return;
+    try {
+      const token = await user.getIdToken();
+      const [membersRes, summaryRes] = await Promise.all([
+        fetch(`/api/finance/${room.id}`, { headers: { Authorization: `Bearer ${token}` } }),
+        fetch(`/api/finance/${room.id}/summary`, { headers: { Authorization: `Bearer ${token}` } }),
+      ]);
+      if (membersRes.ok) setFinanceData(await membersRes.json());
+      if (summaryRes.ok) setFinanceSummary(await summaryRes.json());
+    } catch (e) {}
+  };
+
+  useEffect(() => {
+    if (activeTab === 'finance' && room) {
+      fetchFinance();
+    }
+  }, [activeTab, room, user]);
+
+  const handlePayment = async () => {
+    setPaying(true);
+    try {
+      const token = await user.getIdToken();
+      const res = await fetch('/api/payment/mock-stripe', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`
+        },
+        body: JSON.stringify({ roomId: room?.id })
+      });
+      if (res.ok) {
+        setRoom(prev => prev ? { ...prev, hasPaid: true } : prev);
+        showToast('Payment successful! Welcome to the pool.', 'success');
+      } else {
+        throw new Error('Payment failed');
+      }
+    } catch (e: any) {
+      showToast(e.message, 'error');
+    } finally {
+      setPaying(false);
+    }
+  };
+
   const togglePin = (matchId: number) => {
     setPinnedMatches(prev => prev.includes(matchId) ? prev.filter(id => id !== matchId) : [matchId, ...prev]);
   };
@@ -210,6 +276,7 @@ export default function Dashboard({ user, auth }: DashboardProps) {
     { id: 'matches', label: 'Fixtures', icon: Calendar },
     { id: 'standings', label: 'Standings', icon: Trophy },
     { id: 'feed', label: 'Timeline', icon: Flame },
+    { id: 'finance', label: 'Finance', icon: DollarSign },
     { id: 'profile', label: 'Profile', icon: UserIcon },
   ];
 
@@ -278,12 +345,9 @@ export default function Dashboard({ user, auth }: DashboardProps) {
               <svg className="w-5 h-5 text-black" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}><path strokeLinecap="round" strokeLinejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z"/></svg>
             </div>
             {isSidebarOpen && (
-              <div className="flex items-center gap-3">
+              <div className="flex items-center gap-2">
                 <h1 className="text-2xl font-black tracking-tighter text-white font-display uppercase whitespace-nowrap">THE POOL</h1>
-                <div className="flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-brand/10 border border-brand/20">
-                  <div className="w-1.5 h-1.5 rounded-full bg-brand animate-pulse"></div>
-                  <span className="text-[8px] font-black uppercase tracking-widest text-brand">SYNC SECURE</span>
-                </div>
+                <div className="w-1.5 h-1.5 rounded-full bg-brand animate-pulse"></div>
               </div>
             )}
           </div>
@@ -341,6 +405,32 @@ export default function Dashboard({ user, auth }: DashboardProps) {
       {/* Main Content Area */}
       <div className="flex-1 flex flex-col h-full overflow-hidden relative">
         
+        {/* Onboarding Modal */}
+        {room && room.hasPaid === false && !loading && (
+          <div className="absolute inset-0 z-50 flex items-center justify-center p-4">
+            <div className="absolute inset-0 bg-black/80 backdrop-blur-md"></div>
+            <div className="relative bg-surface-card border border-brand/30 shadow-[0_0_40px_var(--color-brand-muted)] rounded-3xl p-8 max-w-sm w-full flex flex-col items-center text-center animate-in zoom-in-95 duration-300">
+               <div className="w-16 h-16 bg-brand/20 text-brand rounded-2xl flex items-center justify-center mb-6 shadow-inner">
+                  <Trophy className="w-8 h-8" />
+               </div>
+               <h2 className="text-2xl font-black font-display uppercase tracking-tighter text-white mb-2">Join The Premium Pool</h2>
+               <p className="text-sm text-slate-400 font-medium mb-8">Pay the $10 entry fee to unlock the dashboard, make predictions, and compete for the prize pool.</p>
+               <button 
+                 onClick={handlePayment} 
+                 disabled={paying}
+                 className="w-full bg-brand text-black font-black uppercase tracking-widest text-sm py-4 rounded-xl hover:shadow-[0_0_20px_var(--color-brand-muted)] transition-all flex items-center justify-center gap-2"
+               >
+                 {paying ? (
+                   <span className="animate-pulse">Processing...</span>
+                 ) : (
+                   <>Pay $10 with Stripe <ArrowUpRight className="w-4 h-4" /></>
+                 )}
+               </button>
+               <div className="text-[10px] text-slate-500 uppercase tracking-widest mt-4 font-bold">Secure mock payment</div>
+            </div>
+          </div>
+        )}
+        
         {/* Mobile Header */}
         <header className="md:hidden flex-none h-16 border-b border-surface-border bg-surface-base px-4 flex items-center justify-between sticky top-0 z-50">
           <div className="flex items-center gap-3">
@@ -379,88 +469,42 @@ export default function Dashboard({ user, auth }: DashboardProps) {
                  </section>
               )}
 
-              {(activeTab === 'dashboard') && leaderboard && dbUser && (
-                <section className="bg-surface-card text-white rounded-2xl p-5 md:p-6 border border-surface-border flex flex-col">
-                  {(() => {
-                     const myData = leaderboard.find(l => l.id === dbUser.id);
-                     if (!myData || !myData.compliance) return null;
-                     const currentStage = (stages.length > 0 && stages.includes('Group Stage')) ? 'Group Stage' : stages[stages.length - 1];
-                     
-                     const complianceStages = myData.compliance.stages;
-                     let stageData = complianceStages[complianceStages.length - 1];
-                     
-                     if (!stageData) {
-                       return (
-                         <div className="flex items-center justify-between">
-                           <div>
-                             <h2 className="text-xs font-black uppercase tracking-[0.2em] font-display text-slate-500 mb-1">Pick Status</h2>
-                             <div className="text-xl font-black font-display uppercase tracking-tight text-white">NO ACTIVE CYCLE</div>
-                           </div>
-                           <div className="flex gap-4 border-l border-surface-border pl-6">
-                             <div>
-                               <div className="text-[10px] uppercase font-black tracking-widest text-slate-500 mb-1">Points</div>
-                               <div className="text-xl font-black text-white">{myData.points}</div>
-                             </div>
-                             <div>
-                               <div className="text-[10px] uppercase font-black tracking-widest text-slate-500 mb-1">Acc</div>
-                               <div className="text-xl font-black text-white">{myData.accuracy}%</div>
-                             </div>
-                           </div>
-                         </div>
-                       );
-                     }
+              {(activeTab === 'dashboard') && leaderboard && dbUser && (() => {
+                const myData = leaderboard.find(l => l.id === dbUser.id);
+                if (!myData || !myData.compliance) return null;
+                const complianceStages = myData.compliance.stages;
+                const stageData = complianceStages[complianceStages.length - 1];
+                if (!stageData) return null;
 
-                     const isViolating = stageData.violations > 0;
-                     const isSafe = stageData.gamesToMakePick > 1 || stageData.currentStreak === 0;
+                const isViolating = stageData.violations > 0;
+                const isSafe = stageData.gamesToMakePick > 1 || stageData.currentStreak === 0;
 
-                     return (
-                       <div className="flex flex-col md:flex-row md:items-center justify-between gap-6">
-                         <div className="flex-1">
-                           <div className="flex items-center gap-2 mb-2">
-                             <h2 className="text-[10px] font-black uppercase tracking-[0.2em] font-display text-slate-400">{stageData.stage} Compliance</h2>
-                             {isViolating ? (
-                               <div className="px-1.5 py-0.5 bg-red-500 text-white text-[8px] font-black rounded uppercase tracking-widest">VIOLATION</div>
-                             ) : (
-                               <div className={cn("px-1.5 py-0.5 text-[8px] font-black rounded uppercase tracking-widest", isSafe ? "bg-white/20 text-white" : "bg-yellow-400/20 text-yellow-400")}>
-                                 {isSafe ? 'SAFE' : 'ACTION NEEDED'}
-                               </div>
-                             )}
-                           </div>
-                           <div className="text-xl md:text-2xl font-black mb-1 font-display uppercase tracking-tight text-white">
-                             {isViolating ? "YOU MISSED THE WINDOW" : (stageData.currentStreak === 0 ? "CYCLE OK" : (stageData.gamesToMakePick === 0 ? "MUST BET ON NEXT GAME" : `BET NEEDED IN ${stageData.gamesToMakePick} GAMES`))}
-                           </div>
-                           <p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-4">
-                             Rule: Bet 1 in every {stageData.windowSize}. {isViolating ? "You failed to make a pick." : `Elapsed: ${stageData.currentStreak} games.`}
-                           </p>
-                           
-                           {/* Visualizer */}
-                           {stageData.windowSize > 0 && (
-                             <div className="flex gap-1 max-w-[160px]">
-                               {Array.from({ length: stageData.windowSize }).map((_, idx) => {
-                                 const isMissed = idx < stageData.currentStreak;
-                                 return (
-                                   <div key={idx} className={cn("flex-1 h-1.5 rounded-full", isMissed ? "bg-surface-hover" : "bg-white/40", !isMissed && !isViolating && "bg-white/80")}></div>
-                                 );
-                               })}
-                             </div>
-                           )}
-                         </div>
-                         
-                         <div className="flex justify-start md:justify-end gap-6 md:border-l border-t md:border-t-0 border-surface-border pt-4 md:pt-0 md:pl-6">
-                           <div>
-                             <div className="text-[10px] uppercase font-black tracking-widest text-slate-500 mb-1">Total Points</div>
-                             <div className="text-2xl font-black text-white">{myData.points}</div>
-                           </div>
-                           <div>
-                             <div className="text-[10px] uppercase font-black tracking-widest text-slate-500 mb-1">Accuracy</div>
-                             <div className="text-2xl font-black text-white">{myData.accuracy}%</div>
-                           </div>
-                         </div>
-                       </div>
-                     );
-                  })()}
-                </section>
-              )}
+                if (isSafe && !isViolating) return null;
+
+                return (
+                  <div className={cn(
+                    "flex items-center justify-between gap-3 rounded-xl px-4 py-3 text-xs font-bold",
+                    isViolating
+                      ? "bg-red-500/10 border border-red-500/20 text-red-400"
+                      : "bg-yellow-500/10 border border-yellow-500/20 text-yellow-400"
+                  )}>
+                    <div className="flex items-center gap-2">
+                      <Zap className="w-3.5 h-3.5 shrink-0" />
+                      <span>
+                        {isViolating
+                          ? `Compliance violation: missed pick window (1 in ${stageData.windowSize})`
+                          : stageData.gamesToMakePick === 0
+                            ? "Must bet on the next game"
+                            : `Pick needed within ${stageData.gamesToMakePick} games`
+                        }
+                      </span>
+                    </div>
+                    <button onClick={() => setActiveTab('matches')} className="shrink-0 text-[10px] font-black uppercase tracking-widest hover:text-white transition-colors">
+                      View Matches
+                    </button>
+                  </div>
+                );
+              })()}
 
               {activeTab === 'matches' && stages.length > 0 && (
                 <div className="flex flex-col gap-3">
@@ -534,7 +578,6 @@ export default function Dashboard({ user, auth }: DashboardProps) {
                   <div className="absolute top-0 inset-x-0 h-1 bg-gradient-to-r from-red-500/0 via-red-500 to-red-500/0 opacity-20"></div>
                   <div className="flex justify-between items-center mb-5">
                     <h2 className="text-xs font-black uppercase tracking-[0.2em] text-white font-display">Live Now</h2>
-                    <span className="flex items-center gap-1.5 px-2 py-0.5 rounded bg-red-500/10 border border-red-500/20 text-red-500 text-[10px] font-black uppercase tracking-wider">Live</span>
                   </div>
                   <div className="flex flex-col gap-4">
                     {liveMatches.map(m => (
@@ -802,7 +845,7 @@ export default function Dashboard({ user, auth }: DashboardProps) {
                   <div className="mt-auto border-t border-surface-border pt-6 flex justify-end">
                     <button onClick={() => auth.signOut()} className="flex items-center gap-2 bg-red-500/10 hover:bg-red-500/20 text-red-500 px-6 py-3 rounded-xl text-xs font-black uppercase tracking-widest transition-colors border border-red-500/20">
                       <LogOut className="w-4 h-4" />
-                      Sign Out Securely
+                      Sign Out
                     </button>
                   </div>
                 </section>
@@ -854,49 +897,125 @@ export default function Dashboard({ user, auth }: DashboardProps) {
                     <div className="flex items-center justify-between pb-2 bg-black sticky top-0 z-10 pt-4">
                        <h2 className="text-xs font-black uppercase tracking-[0.2em] text-white font-display flex items-center gap-2">
                          <MessageSquare className="w-4 h-4" />
-                         Curated Feed
+                         Recent Activity
                        </h2>
-                       {isAdminUser && (
-                         <button className="text-[10px] font-black text-white hover:text-white uppercase tracking-widest bg-surface-hover px-3 py-1.5 rounded-md transition-colors">
-                           + Add Post
-                         </button>
-                       )}
                     </div>
                     
-                    {/* Placeholder Post 1 */}
-                    <div className="bg-surface-card border border-surface-border rounded-2xl overflow-hidden shadow-xl group hover:border-surface-border transition-colors">
-                      <div className="h-48 bg-slate-800 relative">
-                         <img src="https://images.unsplash.com/photo-1574629810360-7efbc1929849?auto=format&fit=crop&w=800&q=80" alt="News" className="w-full h-full object-cover opacity-60 group-hover:opacity-80 transition-opacity" />
-                         <div className="absolute top-4 left-4 bg-black/60 backdrop-blur-md text-white text-[10px] font-black uppercase tracking-widest px-2.5 py-1 rounded">
-                           Breaking News
+                    {feedEvents.length === 0 ? (
+                       <div className="bg-surface-card border border-surface-border rounded-2xl p-8 text-center text-slate-500 text-xs font-bold uppercase tracking-widest">
+                         No activity yet.
+                       </div>
+                    ) : (
+                       feedEvents.map((event, idx) => (
+                         <div key={idx} className="bg-surface-card border border-surface-border rounded-2xl p-5 shadow-lg flex items-start gap-4">
+                            <div className="w-10 h-10 rounded-full bg-black overflow-hidden border border-surface-border flex items-center justify-center shrink-0">
+                               {event.userAvatar ? (
+                                 <img src={event.userAvatar} alt="Avatar" className="w-full h-full object-cover" />
+                               ) : (
+                                 <div className="text-xs text-slate-500 font-bold">{event.userDisplayName?.substring(0, 2).toUpperCase() || 'P'}</div>
+                               )}
+                            </div>
+                            <div className="flex-1">
+                               <div className="flex justify-between items-start mb-1">
+                                  <span className="text-sm font-bold text-white">{event.userDisplayName}</span>
+                                  <span className="text-[10px] text-slate-500 uppercase font-black tracking-widest">{formatDistanceToNow(new Date(event.createdAt), { addSuffix: true })}</span>
+                               </div>
+                               <p className="text-sm text-slate-400">
+                                 Scored <span className="text-brand font-black">+{event.points} pts</span> for {event.teamA} {event.scoreA} - {event.scoreB} {event.teamB}
+                               </p>
+                            </div>
                          </div>
+                       ))
+                    )}
+                  </section>
+                </div>
+              )}
+              {activeTab === 'finance' && (
+                <div className="flex flex-col gap-6">
+                  {/* Pot Summary Banner */}
+                  {financeSummary && (
+                    <div className="bg-surface-card border border-surface-border rounded-2xl p-5 shadow-lg">
+                      <div className="flex items-center justify-between mb-4">
+                        <h2 className="text-xs font-black uppercase tracking-[0.2em] text-white font-display flex items-center gap-2">
+                          <DollarSign className="w-4 h-4" />
+                          Pool Pot
+                        </h2>
+                        <span className="text-[10px] uppercase font-black tracking-widest text-slate-500">
+                          ${financeSummary.defaultBuyIn} buy-in
+                        </span>
                       </div>
-                      <div className="p-5 md:p-6">
-                        <h3 className="text-lg font-black text-white mb-2">Brazil's Star Player Injured in Training</h3>
-                        <p className="text-sm text-slate-400 font-medium leading-relaxed">Massive blow to the tournament favorites as their captain is confirmed to miss the first three matches due to an ankle tear sustained during practice yesterday.</p>
+                      <div className="flex items-baseline gap-2 mb-3">
+                        <span className="text-3xl font-black font-display text-white">${financeSummary.potTotal}</span>
+                        <span className="text-sm text-slate-500 font-bold">/ ${financeSummary.totalMembers * financeSummary.defaultBuyIn}</span>
+                      </div>
+                      <div className="w-full h-2 bg-surface-base rounded-full overflow-hidden mb-3">
+                        <div
+                          className="h-full bg-brand rounded-full transition-all duration-500"
+                          style={{ width: `${Math.min(100, (financeSummary.potTotal / (financeSummary.totalMembers * financeSummary.defaultBuyIn)) * 100)}%` }}
+                        />
+                      </div>
+                      <div className="flex items-center justify-between text-[10px] font-black uppercase tracking-widest">
+                        <span className="text-emerald-400">{financeSummary.paidCount} paid</span>
+                        <span className="text-red-400">{financeSummary.unpaidCount} unpaid</span>
                       </div>
                     </div>
+                  )}
 
-                    {/* Placeholder Post 2 */}
-                    <div className="bg-surface-card border border-surface-border rounded-2xl overflow-hidden shadow-xl group hover:border-surface-border transition-colors">
-                      <div className="p-5 md:p-6 border-b border-surface-border">
-                        <div className="flex items-center justify-between mb-4">
-                           <div className="text-[10px] font-black uppercase tracking-widest text-white bg-surface-hover px-2 py-1 rounded">Banter / AI Recap</div>
-                           <span className="text-[10px] text-slate-500 font-bold uppercase tracking-widest">2 hours ago</span>
-                        </div>
-                        <h3 className="text-base font-black text-white mb-3">Group Stage MD1 - Admin Thoughts</h3>
-                        <div className="text-sm font-medium text-slate-400 space-y-4">
-                          <p>We've successfully seen exactly zero people correctly predict the Saudi upset over Argentina. Historical repeat?</p>
-                          <div className="bg-surface-hover p-4 rounded-xl border border-surface-border text-slate-300">
-                             Friendly reminder that picks that do NOT lock before 10 minutes of kickoff will be scrubbed automatically and count towards your 3 non-compliance strikes.
+                  {/* Member Payment Table */}
+                  <section className="bg-surface-card border border-surface-border rounded-2xl shadow-lg overflow-hidden">
+                    <div className="px-5 pt-5 pb-4 border-b border-surface-border">
+                      <h2 className="text-xs font-black uppercase tracking-[0.2em] text-white font-display">Payment Status</h2>
+                    </div>
+                    <div className="flex flex-col divide-y divide-surface-border">
+                      {financeData.length === 0 ? (
+                        <div className="p-8 text-center text-slate-500 text-xs font-bold uppercase tracking-widest">No members found.</div>
+                      ) : (
+                        financeData.map(member => (
+                          <div key={member.userId} className="flex items-center gap-3 px-5 py-3">
+                            <div className="w-9 h-9 rounded-full bg-black overflow-hidden border border-surface-border flex items-center justify-center shrink-0">
+                              {member.avatarUrl ? (
+                                <img src={member.avatarUrl} alt="" className="w-full h-full object-cover" />
+                              ) : (
+                                <div className="text-[10px] text-slate-500 font-bold">{member.displayName?.substring(0, 2).toUpperCase() || '??'}</div>
+                              )}
+                            </div>
+                            <div className="flex-1 min-w-0">
+                              <div className="text-xs font-black text-white uppercase tracking-wide truncate">{member.displayName || 'Unknown'}</div>
+                              <div className="text-[10px] text-slate-500 font-bold">${member.amountPaid} paid</div>
+                            </div>
+                            <div className="flex items-center gap-2">
+                              {member.hasPaid ? (
+                                <span className="flex items-center gap-1 text-[10px] font-black uppercase tracking-widest text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 px-2.5 py-1 rounded-lg">
+                                  <Check className="w-3 h-3" /> Paid
+                                </span>
+                              ) : (
+                                <span className="flex items-center gap-1 text-[10px] font-black uppercase tracking-widest text-red-400 bg-red-500/10 border border-red-500/20 px-2.5 py-1 rounded-lg">
+                                  <XCircle className="w-3 h-3" /> Unpaid
+                                </span>
+                              )}
+                              {isAdminUser && (
+                                <button
+                                  onClick={async () => {
+                                    const token = await user.getIdToken();
+                                    const newPaid = !member.hasPaid;
+                                    const newAmount = newPaid ? (financeSummary?.defaultBuyIn || 30) : 0;
+                                    await fetch('/api/admin/finance', {
+                                      method: 'POST',
+                                      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+                                      body: JSON.stringify({ userId: member.userId, roomId: room?.id, hasPaid: newPaid, amountPaid: newAmount }),
+                                    });
+                                    showToast(`${member.displayName} marked as ${newPaid ? 'paid' : 'unpaid'}`, 'success');
+                                    fetchFinance();
+                                  }}
+                                  className="text-[10px] font-black uppercase tracking-widest text-slate-400 hover:text-white bg-surface-base hover:bg-surface-hover border border-surface-border px-2.5 py-1 rounded-lg transition-colors"
+                                >
+                                  {member.hasPaid ? 'Undo' : 'Mark Paid'}
+                                </button>
+                              )}
+                            </div>
                           </div>
-                        </div>
-                        {isAdminUser && (
-                          <div className="mt-5 pt-4 border-t border-surface-border text-right">
-                             <span className="text-[10px] text-slate-600 font-mono">Future extension: Editable AI summaries</span>
-                          </div>
-                        )}
-                      </div>
+                        ))
+                      )}
                     </div>
                   </section>
                 </div>
@@ -927,11 +1046,11 @@ export default function Dashboard({ user, auth }: DashboardProps) {
                           </div>
                           <div className="flex-1">
                             <div className={cn("text-xs font-black tracking-wide uppercase", isMe ? "text-white" : "text-white")}>{isMe ? "YOU" : member.displayName}</div>
-                            <div className="text-[9px] text-slate-400 font-bold tracking-widest uppercase mt-0.5">{member.accuracy}% Acc</div>
+                            <div className="text-[9px] text-slate-300 font-bold tracking-widest uppercase mt-0.5">{member.accuracy}% Acc</div>
                           </div>
                           <div className="text-right">
                             <div className="text-sm font-black font-display">{member.points}</div>
-                            <div className={cn("text-[8px] font-black tracking-widest uppercase mt-0.5", member.trend === 'up' ? "text-white" : (member.trend === 'down' ? "text-red-400" : "text-slate-500"))}>
+                            <div className={cn("text-[8px] font-black tracking-widest uppercase mt-0.5", member.trend === 'up' ? "text-white" : (member.trend === 'down' ? "text-red-400" : "text-slate-400"))}>
                               {member.trend === 'up' ? '↑ Rising' : (member.trend === 'down' ? '↓ Falling' : 'Stable')}
                             </div>
                           </div>
@@ -996,7 +1115,7 @@ export default function Dashboard({ user, auth }: DashboardProps) {
                       <div className="grid grid-cols-2 gap-4">
                         <div className="bg-black border border-surface-border p-4 rounded-xl">
                            <div className="text-[10px] uppercase font-black text-slate-500 tracking-widest mb-2">Group Stage</div>
-                           <div className="text-xl font-black text-white">30 PTS <span className="text-slate-500 text-sm ml-2">1 in 3</span></div>
+                           <div className="text-xl font-black text-white">30 PTS <span className="text-slate-500 text-sm ml-2">1 in 5</span></div>
                         </div>
                         <div className="bg-black border border-surface-border p-4 rounded-xl">
                            <div className="text-[10px] uppercase font-black text-slate-500 tracking-widest mb-2">Round of 32 & 16</div>
@@ -1108,7 +1227,7 @@ export default function Dashboard({ user, auth }: DashboardProps) {
                       liveMatches.slice(0, 2).forEach(m => {
                         intel.push({
                             icon: <Zap className="w-4 h-4 text-red-500 animate-pulse" />,
-                            title: "MATCH LIVE",
+                            title: "IN PROGRESS",
                             desc: `${m.teamA} vs ${m.teamB} is playing now.`,
                         });
                       });

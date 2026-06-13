@@ -96,10 +96,6 @@ export default function MatchCard({ match, pick, onPick, onClick, isPinned, onTo
     return '-';
   }
   
-  // Generating deterministic mock odds based on match.id so they remain constant for a match
-  const oddA = `+${(match.id * 13 % 150) + 110}`;
-  const oddB = `-${(match.id * 7 % 150) + 110}`;
-  
   // Calculate canonical formatted lock time
   const getLockTimeDisplay = () => {
     const lockDate = parseDate(match.lockTime);
@@ -132,9 +128,10 @@ export default function MatchCard({ match, pick, onPick, onClick, isPinned, onTo
     <div 
       onClick={onClick}
       className={cn(
-      "bg-surface-card border rounded-2xl p-5 flex flex-col gap-4 group transition-all cursor-pointer hover:border-surface-border backdrop-blur-sm",
-      locked ? "border-surface-border opacity-60" : "border-surface-border shadow-xl"
+      "bg-surface-card border rounded-2xl p-3 md:p-4 flex flex-col gap-2.5 md:gap-3 group transition-all cursor-pointer backdrop-blur-sm relative overflow-hidden",
+      isLive ? "border-red-500/50 shadow-[0_0_20px_rgba(239,68,68,0.2)] opacity-100" : (locked ? "border-surface-border opacity-60" : "border-surface-border shadow-xl hover:border-surface-border")
     )}>
+      {isLive && <div className="absolute inset-0 bg-red-500/5 animate-pulse pointer-events-none"></div>}
       {/* Header tags */}
       <div className="flex justify-between items-center text-[10px] font-bold uppercase tracking-wider text-slate-500">
         <div className="flex items-center gap-2">
@@ -154,22 +151,16 @@ export default function MatchCard({ match, pick, onPick, onClick, isPinned, onTo
       {/* Matchup */}
       <div className="flex items-center justify-between mt-1">
         <div className="flex flex-col gap-1 w-[38%]">
-          <div className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-3">
-            <span className={cn("text-3xl", locked ? "opacity-50" : "opacity-100")}>{match.teamAFlag}</span>
-            <span className="font-display font-black text-base sm:text-lg md:text-xl leading-tight line-clamp-2">{match.teamA}</span>
+          <div className="flex flex-col sm:flex-row sm:items-center gap-1 sm:gap-3">
+            <span className={cn("text-2xl md:text-3xl", locked ? "opacity-50" : "opacity-100")}>{match.teamAFlag}</span>
+            <span className="font-display font-black text-sm sm:text-lg md:text-xl leading-tight line-clamp-2">{match.teamA}</span>
           </div>
-          <span className="text-[10px] font-mono font-bold text-slate-500 sm:pl-11">{oddA}</span>
         </div>
-        
+
         <div className="flex flex-col items-center gap-1 w-[24%]">
           <div className="px-3 py-2.5 sm:px-5 bg-surface-base border border-surface-border rounded-xl text-xl md:text-2xl font-black text-white tabular-nums shadow-inner relative overflow-hidden flex items-center justify-center min-w-[80px] sm:min-w-[100px]">
              {locked && (isFinished || isLive) ? (
-               match.status === 'live' ? (
-                 <div className="flex flex-col items-center">
-                   <span className="text-[10px] text-brand animate-pulse uppercase tracking-widest leading-none mb-1">LIVE</span>
-                   <span className="leading-none">{match.scoreA || 0} - {match.scoreB || 0}</span>
-                 </div>
-               ) : `${match.scoreA !== null ? match.scoreA : 0} - ${match.scoreB !== null ? match.scoreB : 0}`
+               `${match.scoreA !== null ? match.scoreA : 0} - ${match.scoreB !== null ? match.scoreB : 0}`
              ) : (
                <span className="font-mono tracking-tighter text-sm sm:text-xl">{format(parseDate(match.kickoffTime), 'HH:mm')}</span>
              )}
@@ -177,11 +168,10 @@ export default function MatchCard({ match, pick, onPick, onClick, isPinned, onTo
         </div>
         
         <div className="flex flex-col items-end gap-1 w-[38%] text-right">
-          <div className="flex flex-col-reverse sm:flex-row sm:items-center justify-end gap-2 sm:gap-3">
-            <span className="font-display font-black text-base sm:text-lg md:text-xl leading-tight line-clamp-2">{match.teamB}</span>
-            <span className={cn("text-3xl", locked ? "opacity-50" : "opacity-100")}>{match.teamBFlag}</span>
+          <div className="flex flex-col-reverse sm:flex-row sm:items-center justify-end gap-1 sm:gap-3">
+            <span className="font-display font-black text-sm sm:text-lg md:text-xl leading-tight line-clamp-2">{match.teamB}</span>
+            <span className={cn("text-2xl md:text-3xl", locked ? "opacity-50" : "opacity-100")}>{match.teamBFlag}</span>
           </div>
-          <span className="text-[10px] font-mono font-bold text-slate-500 sm:pr-11">{oddB}</span>
         </div>
       </div>
 
@@ -253,8 +243,8 @@ export default function MatchCard({ match, pick, onPick, onClick, isPinned, onTo
             </div>
           ) : (
             <div className="flex flex-col items-center justify-center mt-3 border-t border-surface-border pt-3 gap-1">
-              <span className="text-[10px] font-black uppercase text-slate-500 tracking-widest">Pick Window Closed</span>
-              <span className="text-[9px] font-bold text-slate-600 uppercase tracking-widest">No pick was submitted</span>
+              <span className="text-[10px] font-black uppercase text-slate-400 tracking-widest">Pick Window Closed</span>
+              <span className="text-[9px] font-bold text-slate-500 uppercase tracking-widest">No pick was submitted</span>
             </div>
           )}
           
@@ -266,22 +256,6 @@ export default function MatchCard({ match, pick, onPick, onClick, isPinned, onTo
             </div>
           )}
 
-          {(isFinished || isLive) && (
-            <div className="mt-4 pt-3 border-t border-surface-border grid grid-cols-3 gap-2 text-center text-[10px] font-medium text-slate-500">
-               <div>
-                  <div className="font-mono text-white mb-0.5">{40 + (match.id * 17 % 20)}% <span className="opacity-40">-</span> {60 - (match.id * 17 % 20)}%</div>
-                  <div className="uppercase tracking-widest text-[8px]">Possession</div>
-               </div>
-               <div>
-                  <div className="font-mono text-white mb-0.5">{(match.scoreA || 0) + (match.id % 3)} <span className="opacity-40">-</span> {(match.scoreB || 0) + (match.id % 4)}</div>
-                  <div className="uppercase tracking-widest text-[8px]">Shots on Target</div>
-               </div>
-               <div>
-                  <div className="font-mono text-white mb-0.5">{(match.id * 2 % 5) + 1} <span className="opacity-40">-</span> {(match.id * 3 % 4) + 1}</div>
-                  <div className="uppercase tracking-widest text-[8px]">Corners</div>
-               </div>
-            </div>
-          )}
         </>
       )}
     </div>

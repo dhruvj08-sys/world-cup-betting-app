@@ -1,7 +1,6 @@
 import fetch from 'node-fetch'; // if needed, we can just use native fetch if node 18+
 
-const PORT = process.env.PORT || 3000;
-const URL = `http://localhost:${PORT}/api/webhook/sports-data`;
+const URL = `https://world-cup-pool-system.vercel.app/api/webhook/sports-data`;
 
 async function testWebhook() {
   console.log("Sending mock API-Football payload to local webhook endpoint...");

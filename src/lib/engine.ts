@@ -8,7 +8,7 @@ export const POINTS_BY_STAGE: Record<string, number> = {
 };
 
 export const COMPLIANCE_WINDOW_BY_STAGE: Record<string, number> = {
-  "Group Stage": 3,
+  "Group Stage": 5,
   "Round of 32": 2,
   "Round of 16": 2,
   "Quarter Finals": 2,

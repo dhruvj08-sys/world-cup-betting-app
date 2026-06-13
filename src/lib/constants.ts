@@ -12,7 +12,7 @@ export const STAGE_POINTS: Record<MatchStage, number> = {
 };
 
 export const STAGE_CYCLE_RULES: Record<MatchStage, number | null> = {
-  'Group Stage': 3,
+  'Group Stage': 5,
   'Round of 32': 2,
   'Round of 16': 2,
   'Quarter Finals': 2,

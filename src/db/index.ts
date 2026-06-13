@@ -1,13 +1,16 @@
 import { drizzle } from 'drizzle-orm/node-postgres';
-import { Pool } from 'pg';
+import pg from 'pg';
+const { Pool } = pg;
 import * as schema from './schema.js';
 
 // Function to create a new connection pool.
 export const createPool = () => {
+  const connString = process.env.DATABASE_URL || process.env.POSTGRES_URL;
   return new Pool({
-    connectionString: process.env.DATABASE_URL || process.env.POSTGRES_URL,
+    connectionString: connString,
     connectionTimeoutMillis: 15000,
-    max: 1, // Limit connections for serverless environments
+    max: 1,
+    ssl: connString?.includes('sslmode=require') ? true : undefined,
   });
 };
 

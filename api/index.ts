@@ -9,6 +9,13 @@ const app = express();
 
 app.use(express.json());
 
+function mapApiFootballStatus(shortStatus: string): string {
+  if (['1H', '2H', 'HT', 'ET', 'P', 'LIVE'].includes(shortStatus)) return 'live';
+  if (['FT', 'AET', 'PEN'].includes(shortStatus)) return 'finished';
+  if (['CANC', 'POSTP'].includes(shortStatus)) return 'cancelled';
+  return 'scheduled';
+}
+
 // API endpoints
 
 // Return current user session
@@ -151,15 +158,19 @@ app.get("/api/room", requireAuth, async (req: AuthRequest, res) => {
     const memberships = await db.select().from(roomMembers).where(
       and(eq(roomMembers.userId, req.dbUser.id), eq(roomMembers.roomId, activeRoom.id))
     );
+    let userHasPaid = false;
     if (!memberships.length) {
       await db.insert(roomMembers).values({
         userId: req.dbUser.id,
         roomId: activeRoom.id,
-        role: "member" // Or admin if first user
+        role: "member", // Or admin if first user
+        hasPaid: false
       });
+    } else {
+      userHasPaid = memberships[0].hasPaid;
     }
 
-    res.json(activeRoom);
+    res.json({ ...activeRoom, hasPaid: userHasPaid });
   } catch (error) {
     console.error(error);
     res.status(500).json({ error: "Failed to get room", cause: error });
@@ -303,6 +314,47 @@ app.get("/api/leaderboard/:roomId", requireAuth, async (req: AuthRequest, res) =
   }
 });
 
+// Mock Stripe payment
+app.post("/api/payment/mock-stripe", requireAuth, async (req: AuthRequest, res) => {
+  try {
+    const { roomId } = req.body;
+    await db.update(roomMembers)
+      .set({ hasPaid: true })
+      .where(and(eq(roomMembers.userId, req.dbUser.id), eq(roomMembers.roomId, roomId)));
+    res.json({ success: true });
+  } catch (error) {
+    res.status(500).json({ error: "Payment failed" });
+  }
+});
+
+// Activity feed
+app.get("/api/feed/:roomId", requireAuth, async (req: AuthRequest, res) => {
+  try {
+    const roomId = parseInt(req.params.roomId);
+    const feed = await db.select({
+      id: scoreEvents.id,
+      points: scoreEvents.points,
+      createdAt: scoreEvents.createdAt,
+      matchId: scoreEvents.matchId,
+      userId: scoreEvents.userId,
+      userDisplayName: users.displayName,
+      userAvatar: users.avatarUrl,
+      teamA: matches.teamA,
+      teamB: matches.teamB,
+      scoreA: matches.scoreA,
+      scoreB: matches.scoreB
+    }).from(scoreEvents)
+      .innerJoin(users, eq(scoreEvents.userId, users.id))
+      .innerJoin(matches, eq(scoreEvents.matchId, matches.id))
+      .where(eq(scoreEvents.roomId, roomId))
+      .orderBy(desc(scoreEvents.createdAt))
+      .limit(20);
+    res.json(feed);
+  } catch (error) {
+    res.status(500).json({ error: "Failed to fetch feed" });
+  }
+});
+
 // External API Webhook endpoint
 app.post("/api/webhook/sports-data", express.json(), async (req: express.Request, res: express.Response) => {
   try {
@@ -331,15 +383,8 @@ app.post("/api/webhook/sports-data", express.json(), async (req: express.Request
     const match = matchList[0];
 
     // 4. Map external status to internal status
-    let newStatus = match.status;
     const shortStatus = fixture.status.short;
-    if (['1H', '2H', 'HT', 'ET', 'P', 'LIVE'].includes(shortStatus)) {
-      newStatus = 'live';
-    } else if (['FT', 'AET', 'PEN'].includes(shortStatus)) {
-      newStatus = 'finished';
-    } else if (['CANC', 'POSTP'].includes(shortStatus)) {
-      newStatus = 'cancelled';
-    }
+    const newStatus = mapApiFootballStatus(shortStatus);
 
     // 5. Update Database
     const updateData: Partial<typeof matches.$inferInsert> = {
@@ -362,6 +407,146 @@ app.post("/api/webhook/sports-data", express.json(), async (req: express.Request
   } catch (error) {
     console.error("Webhook processing error:", error);
     res.status(500).json({ error: "Internal server error processing webhook" });
+  }
+});
+
+// Cron: Update live scores from API-Football
+app.get("/api/cron/update-scores", async (req, res) => {
+  // Verify cron secret
+  const authHeader = req.headers.authorization;
+  const cronSecret = process.env.CRON_SECRET;
+  if (cronSecret && (!authHeader || authHeader !== `Bearer ${cronSecret}`)) {
+    return res.status(401).json({ error: "Unauthorized" });
+  }
+
+  try {
+    const apiKey = process.env.API_FOOTBALL_KEY;
+    if (!apiKey) {
+      return res.status(500).json({ error: "API_FOOTBALL_KEY not configured" });
+    }
+
+    // Find matches that are live or starting soon (within 30 min)
+    const now = new Date();
+    const soon = new Date(now.getTime() + 30 * 60 * 1000);
+    const recentCutoff = new Date(now.getTime() - 4 * 60 * 60 * 1000);
+
+    const activeMatches = await db.select().from(matches).where(
+      eq(matches.poolStatus, 'eligible')
+    );
+
+    // Filter to matches that are live or starting soon
+    const matchesToCheck = activeMatches.filter(m => {
+      const kickoff = new Date(m.kickoffTime);
+      return (m.status === 'live') ||
+             (m.status === 'scheduled' && kickoff >= recentCutoff && kickoff <= soon);
+    });
+
+    if (matchesToCheck.length === 0) {
+      return res.json({ updated: 0, checked: 0, message: "No active matches" });
+    }
+
+    // Batch fetch from API-Football (up to 20 IDs)
+    const externalIds = matchesToCheck
+      .filter(m => m.externalId)
+      .map(m => m.externalId)
+      .slice(0, 20);
+
+    if (externalIds.length === 0) {
+      return res.json({ updated: 0, checked: 0, message: "No external IDs mapped" });
+    }
+
+    const apiRes = await fetch(
+      `https://v3.football.api-sports.io/fixtures?ids=${externalIds.join('-')}`,
+      { headers: { 'x-apisports-key': apiKey } }
+    );
+    const apiData = await apiRes.json();
+
+    let updated = 0;
+    for (const fixture of (apiData.response || [])) {
+      const extId = fixture.fixture.id.toString();
+      const match = matchesToCheck.find(m => m.externalId === extId);
+      if (!match) continue;
+
+      const newStatus = mapApiFootballStatus(fixture.fixture.status.short);
+      const updateData: any = { status: newStatus };
+      if (fixture.goals?.home !== null) updateData.scoreA = fixture.goals.home;
+      if (fixture.goals?.away !== null) updateData.scoreB = fixture.goals.away;
+
+      await db.update(matches).set(updateData).where(eq(matches.id, match.id));
+      updated++;
+    }
+
+    res.json({ updated, checked: matchesToCheck.length });
+  } catch (error) {
+    console.error("Cron update error:", error);
+    res.status(500).json({ error: "Failed to update scores" });
+  }
+});
+
+// Finance: Get payment status for all room members
+app.get("/api/finance/:roomId", requireAuth, async (req: AuthRequest, res) => {
+  try {
+    const roomId = parseInt(req.params.roomId);
+    const members = await db.select({
+      userId: users.id,
+      displayName: users.displayName,
+      avatarUrl: users.avatarUrl,
+      hasPaid: roomMembers.hasPaid,
+      amountPaid: roomMembers.amountPaid,
+      joinedAt: roomMembers.joinedAt,
+    }).from(roomMembers)
+      .innerJoin(users, eq(roomMembers.userId, users.id))
+      .where(eq(roomMembers.roomId, roomId));
+    res.json(members);
+  } catch (error) {
+    res.status(500).json({ error: "Failed to fetch finance data" });
+  }
+});
+
+// Finance: Admin update payment status
+app.post("/api/admin/finance", requireAuth, async (req: AuthRequest, res) => {
+  try {
+    if (!req.dbUser.isGlobalAdmin) {
+      return res.status(403).json({ error: "Admin only" });
+    }
+    const { userId, roomId, hasPaid, amountPaid } = req.body;
+
+    await db.update(roomMembers)
+      .set({
+        hasPaid: hasPaid ?? false,
+        amountPaid: amountPaid ?? 0
+      })
+      .where(and(eq(roomMembers.userId, userId), eq(roomMembers.roomId, roomId)));
+
+    await db.insert(auditLogs).values({
+      adminId: req.dbUser.id,
+      action: 'UPDATE_PAYMENT',
+      targetId: userId,
+      details: JSON.stringify({ roomId, hasPaid, amountPaid })
+    });
+
+    res.json({ success: true });
+  } catch (error) {
+    res.status(500).json({ error: "Failed to update payment" });
+  }
+});
+
+// Finance: Get pot summary
+app.get("/api/finance/:roomId/summary", requireAuth, async (req: AuthRequest, res) => {
+  try {
+    const roomId = parseInt(req.params.roomId);
+    const members = await db.select({
+      hasPaid: roomMembers.hasPaid,
+      amountPaid: roomMembers.amountPaid,
+    }).from(roomMembers).where(eq(roomMembers.roomId, roomId));
+
+    const totalMembers = members.length;
+    const paidCount = members.filter(m => m.hasPaid).length;
+    const potTotal = members.reduce((sum, m) => sum + (m.amountPaid || 0), 0);
+
+    res.json({ totalMembers, paidCount, unpaidCount: totalMembers - paidCount, potTotal, defaultBuyIn: 30 });
+  } catch (error) {
+    res.status(500).json({ error: "Failed to fetch finance summary" });
   }
 });
 

@@ -25,12 +25,14 @@ export const roomMembers = pgTable('room_members', {
   userId: integer('user_id').references(() => users.id).notNull(),
   roomId: integer('room_id').references(() => rooms.id).notNull(),
   role: text('role').notNull().default('member'), // 'admin' or 'member'
+  hasPaid: boolean('has_paid').default(false).notNull(),
+  amountPaid: integer('amount_paid').default(0).notNull(),
   joinedAt: timestamp('joined_at').defaultNow(),
 });
 
 export const matches = pgTable('matches', {
   id: serial('id').primaryKey(),
-  externalId: text('external_id'), // Official source ID
+  externalId: text('external_id').unique(), // Official source ID
   teamA: text('team_a').notNull(),
   teamAFlag: text('team_a_flag'), 
   teamB: text('team_b').notNull(),

@@ -45,6 +45,7 @@ export interface Room {
   id: number;
   name: string;
   inviteCode: string;
+  hasPaid?: boolean;
   createdAt: string;
 }
 
