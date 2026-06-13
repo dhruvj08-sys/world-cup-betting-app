@@ -23,11 +23,15 @@ export interface MatchDTO {
   status: string; // 'scheduled', 'live', 'finished', 'cancelled'
   poolStatus: string; // 'eligible', 'excluded'
   result?: string; // 'teamA', 'teamB', 'draw'
+  scoreA?: number | null;
+  scoreB?: number | null;
 }
 
 export interface PickDTO {
   matchId: number;
   selection: string;
+  predictedScoreA?: number | null;
+  predictedScoreB?: number | null;
 }
 
 export function isCompliant(matches: MatchDTO[], picks: PickDTO[], stage: string): { compliant: boolean; missingPicks: number; violations: number; currentStreak: number; gamesToMakePick: number; windowSize: number; stageMatches: MatchDTO[] } {
@@ -109,7 +113,7 @@ export function calculateScore(matches: MatchDTO[], picks: PickDTO[], adminOverr
   let correct = 0;
   let totalFinished = 0;
 
-  const pickMap = new Map(picks.map(p => [p.matchId, p.selection]));
+  const pickMap = new Map(picks.map(p => [p.matchId, p]));
 
   for (const match of matches) {
     if (match.status !== 'finished') continue;
@@ -118,9 +122,17 @@ export function calculateScore(matches: MatchDTO[], picks: PickDTO[], adminOverr
     totalFinished++;
     
     const userPick = pickMap.get(match.id);
-    if (userPick && userPick === match.result) {
+    if (userPick && userPick.selection === match.result) {
       // Check admin overrides here if provided
-      const points = POINTS_BY_STAGE[match.stage] || 0;
+      let points = POINTS_BY_STAGE[match.stage] || 0;
+      
+      // Bonus for exact score prediction
+      // We assume pick has predictedScoreA and predictedScoreB (which we should add to PickDTO)
+      const exactScore = userPick.predictedScoreA === match.scoreA && userPick.predictedScoreB === match.scoreB;
+      if (exactScore) {
+        points += 5; // e.g., +5 bonus for exact score
+      }
+
       score += points;
       correct++;
     }

@@ -73,10 +73,37 @@ export function AdminControls({ user, match, onUpdate, showToast }: AdminControl
         </button>
         
         {match.status !== 'finished' && (
-          <div className="flex bg-black/40 border border-white/20 rounded-lg overflow-hidden">
+          <div className="flex bg-black/40 border border-white/20 rounded-lg overflow-hidden items-center">
+            {match.status === 'scheduled' && (
+              <button 
+                onClick={() => handleUpdate({ status: 'live' })}
+                className="px-2 py-1.5 text-[10px] font-black uppercase tracking-widest transition-colors text-brand hover:bg-white/10 border-r border-white/20"
+              >
+                Go Live
+              </button>
+            )}
             <input type="number" id={`settleScoreA-${match.id}`} placeholder="A" defaultValue={match.scoreA ?? ''} min="0" className="w-10 bg-transparent text-white font-black text-center focus:outline-none focus:bg-white/10 text-xs" />
             <div className="w-px bg-white/20"></div>
             <input type="number" id={`settleScoreB-${match.id}`} placeholder="B" defaultValue={match.scoreB ?? ''} min="0" className="w-10 bg-transparent text-white font-black text-center focus:outline-none focus:bg-white/10 text-xs" />
+            {match.status === 'live' && (
+              <button 
+                onClick={() => {
+                  const scoreAInput = document.getElementById(`settleScoreA-${match.id}`) as HTMLInputElement;
+                  const scoreBInput = document.getElementById(`settleScoreB-${match.id}`) as HTMLInputElement;
+                  if (!scoreAInput || !scoreBInput) return;
+                  const scoreA = parseInt(scoreAInput.value);
+                  const scoreB = parseInt(scoreBInput.value);
+                  if (!isNaN(scoreA) && !isNaN(scoreB)) {
+                    handleUpdate({ scoreA, scoreB });
+                  } else {
+                    showToast('Please enter both scores to update.', 'error');
+                  }
+                }}
+                className="px-3 py-1.5 text-[10px] font-black uppercase tracking-widest transition-colors bg-white/10 text-white hover:bg-white/20 border-l border-white/20"
+              >
+                Update
+              </button>
+            )}
             <button 
               onClick={() => {
                 const scoreAInput = document.getElementById(`settleScoreA-${match.id}`) as HTMLInputElement;
