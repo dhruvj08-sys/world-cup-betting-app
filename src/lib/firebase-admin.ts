@@ -3,7 +3,7 @@ import { getAuth } from 'firebase-admin/auth';
 
 if (!getApps().length) {
   initializeApp({
-    projectId: "gen-lang-client-0794500578",
+    projectId: "world-cup-pool-86683",
   });
 }
 
