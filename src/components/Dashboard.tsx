@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { User, Auth } from 'firebase/auth';
 import { format, formatDistanceToNow, isPast } from 'date-fns';
-import { LogOut, Home, Calendar, Trophy, Zap, Menu, X, ArrowUpRight, ArrowDownRight, Scale, User as UserIcon, Database, Settings, Pin, Flame, MessageSquare, DollarSign, Check, XCircle } from 'lucide-react';
+import { LogOut, Home, Calendar, Trophy, Zap, X, User as UserIcon, Database, Settings, Pin, Flame, DollarSign, Check, XCircle } from 'lucide-react';
 import MatchCard from './MatchCard';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
@@ -177,10 +177,6 @@ export default function Dashboard({ user, auth }: DashboardProps) {
       fetchFinance();
     }
   }, [activeTab, room, user]);
-
-  const dismissPaymentBanner = () => {
-    setRoom(prev => prev ? { ...prev, hasPaid: true } : prev);
-  };
 
   const togglePin = (matchId: number) => {
     setPinnedMatches(prev => prev.includes(matchId) ? prev.filter(id => id !== matchId) : [matchId, ...prev]);
@@ -383,31 +379,6 @@ export default function Dashboard({ user, auth }: DashboardProps) {
       {/* Main Content Area */}
       <div className="flex-1 flex flex-col h-full overflow-hidden relative">
         
-        {/* Onboarding Modal */}
-        {room && room.hasPaid === false && !loading && (
-          <div className="absolute inset-0 z-50 flex items-center justify-center p-4">
-            <div className="absolute inset-0 bg-black/80 backdrop-blur-md"></div>
-            <div className="relative bg-surface-card border border-brand/30 shadow-[0_0_40px_var(--color-brand-muted)] rounded-3xl p-8 max-w-sm w-full flex flex-col items-center text-center animate-in zoom-in-95 duration-300">
-               <div className="w-16 h-16 bg-brand/20 text-brand rounded-2xl flex items-center justify-center mb-6 shadow-inner">
-                  <DollarSign className="w-8 h-8" />
-               </div>
-               <h2 className="text-2xl font-black font-display uppercase tracking-tighter text-white mb-2">Buy-In Required</h2>
-               <p className="text-sm text-slate-400 font-medium mb-6">Pay the pool admin directly to enter. Once confirmed, your status will be updated in the Finance tab.</p>
-               <div className="w-full bg-surface-base border border-surface-border rounded-xl p-4 mb-6 text-left">
-                 <div className="text-[10px] uppercase font-black tracking-widest text-slate-500 mb-1">Amount</div>
-                 <div className="text-xl font-black text-white">$30 <span className="text-sm text-slate-500 font-bold">per person</span></div>
-               </div>
-               <button
-                 onClick={dismissPaymentBanner}
-                 className="w-full bg-brand text-black font-black uppercase tracking-widest text-sm py-4 rounded-xl hover:shadow-[0_0_20px_var(--color-brand-muted)] transition-all flex items-center justify-center gap-2"
-               >
-                 Got it, continue to pool
-               </button>
-               <div className="text-[10px] text-slate-500 uppercase tracking-widest mt-4 font-bold">Admin tracks all payments</div>
-            </div>
-          </div>
-        )}
-        
         {/* Mobile Header */}
         <header className="md:hidden flex-none h-16 border-b border-surface-border bg-surface-base px-4 flex items-center justify-between sticky top-0 z-50">
           <div className="flex items-center gap-3">
@@ -426,10 +397,18 @@ export default function Dashboard({ user, auth }: DashboardProps) {
 
         {/* Scrollable Main Section */}
         <main className="flex-1 overflow-y-auto p-4 md:p-8 pb-24 md:pb-8">
-          <div className="max-w-5xl mx-auto w-full grid grid-cols-1 lg:grid-cols-12 gap-6">
-            
+          <div className={cn(
+            "mx-auto w-full",
+            (activeTab === 'dashboard' || activeTab === 'matches')
+              ? "max-w-5xl grid grid-cols-1 lg:grid-cols-12 gap-6"
+              : "max-w-4xl flex flex-col gap-6"
+          )}>
+
             {/* Left/Main Column */}
-            <div className="col-span-1 lg:col-span-8 flex flex-col gap-6">
+            <div className={cn(
+              "flex flex-col gap-6",
+              (activeTab === 'dashboard' || activeTab === 'matches') ? "col-span-1 lg:col-span-8" : ""
+            )}>
               
               
               {(activeTab === 'dashboard') && leaderboard.length <= 1 && picks.length === 0 && (
@@ -682,77 +661,71 @@ export default function Dashboard({ user, auth }: DashboardProps) {
               )}
               
               {activeTab === 'standings' && (
-                <section className="bg-surface-card border border-surface-border rounded-2xl flex flex-col shadow-xl overflow-hidden w-full lg:col-span-12">
-                   <div className="px-6 py-6 border-b border-surface-border bg-black/50">
-                     <h2 className="text-xl font-black uppercase tracking-[0.1em] text-white font-display">Global Rankings</h2>
-                     <p className="text-xs text-slate-400 font-bold uppercase tracking-widest mt-1">Full participation breakdown</p>
-                   </div>
-                   <div className="overflow-x-auto">
-                     <table className="w-full text-left border-collapse">
-                       <thead>
-                         <tr className="border-b border-surface-border text-[10px] uppercase font-black tracking-widest text-slate-500 bg-surface-base">
-                           <th className="p-4 pl-6 font-medium">Rank</th>
-                           <th className="p-4 font-medium">Player</th>
-                           <th className="p-4 font-medium text-center">Accuracy</th>
-                           <th className="p-4 font-medium text-center">Trend</th>
-                           <th className="p-4 pr-6 font-medium text-right">Points</th>
-                         </tr>
-                       </thead>
-                       <tbody className="divide-y divide-surface-border/50">
-                         {leaderboard.map((member, index) => {
-                            const isMe = member.id === dbUser?.id;
-                            return (
-                              <tr key={member.id} className={isMe ? "bg-brand/5" : "hover:bg-surface-hover/50 transition-colors"}>
-                                <td className="p-4 pl-6">
-                                  <span className={isMe ? "text-brand font-black" : "text-white font-bold"}>#{index + 1}</span>
-                                </td>
-                                <td className="p-4">
-                                  <div className="flex items-center gap-3">
-                                    <div className="w-8 h-8 rounded-full bg-black overflow-hidden border border-surface-border flex items-center justify-center">
-                                      {member.avatarUrl ? (
-                                        <img src={member.avatarUrl} alt="Avatar" className="w-full h-full object-cover" />
-                                      ) : (
-                                        <div className="text-[10px] text-slate-500 font-bold">{member.displayName?.substring(0, 2).toUpperCase() || 'P'}</div>
-                                      )}
-                                    </div>
-                                    <span className={isMe ? "text-brand font-black" : "text-white font-bold uppercase tracking-wide"}>{isMe ? "YOU" : member.displayName}</span>
-                                  </div>
-                                </td>
-                                <td className="p-4 text-center">
-                                  <div className="inline-block px-2 py-1 bg-surface-base border border-surface-border rounded text-[10px] font-mono font-bold text-white">
-                                    {member.accuracy}% 
-                                  </div>
-                                </td>
-                                <td className="p-4 text-center">
-                                  <span className={member.trend === 'up' ? "text-emerald-400 font-black text-[10px] tracking-widest uppercase" : (member.trend === 'down' ? "text-red-400 font-black text-[10px] tracking-widest uppercase" : "text-slate-500 font-black text-[10px] tracking-widest uppercase")}>
-                                    {member.trend === 'up' ? 'UP' : (member.trend === 'down' ? 'DOWN' : 'SAME')}
-                                  </span>
-                                </td>
-                                <td className="p-4 pr-6 text-right">
-                                  <span className="text-xl font-black font-display text-white">{member.points}</span>
-                                </td>
-                              </tr>
-                            );
-                         })}
-                       </tbody>
-                     </table>
-                   </div>
-                </section>
+                <div className="flex flex-col gap-6">
+                  <div className="flex items-center justify-between">
+                    <h2 className="text-sm font-black uppercase tracking-[0.15em] text-white font-display">Standings</h2>
+                    <span className="text-[10px] text-slate-500 font-bold uppercase tracking-widest">{leaderboard.length} players</span>
+                  </div>
+
+                  {leaderboard.length === 0 ? (
+                    <div className="bg-surface-card border border-surface-border rounded-2xl p-12 text-center">
+                      <Trophy className="w-6 h-6 text-slate-600 mx-auto mb-3" />
+                      <p className="text-slate-500 text-xs font-bold uppercase tracking-widest">No standings yet</p>
+                    </div>
+                  ) : (
+                    <div className="flex flex-col gap-2">
+                      {leaderboard.map((member, index) => {
+                        const isMe = member.id === dbUser?.id;
+                        const rank = index + 1;
+                        const rankColors: Record<number, string> = { 1: 'text-yellow-400', 2: 'text-slate-300', 3: 'text-amber-600' };
+                        return (
+                          <div key={member.id} className={cn(
+                            "flex items-center gap-4 p-4 rounded-xl border transition-all",
+                            isMe ? "bg-brand/5 border-brand/20" : "bg-surface-card border-surface-border"
+                          )}>
+                            <div className={cn("w-8 text-center font-black text-sm", rankColors[rank] || "text-slate-500")}>
+                              {rank}
+                            </div>
+                            <div className="w-10 h-10 rounded-full bg-black overflow-hidden border border-surface-border flex items-center justify-center shrink-0">
+                              {member.avatarUrl ? (
+                                <img src={member.avatarUrl} alt="" className="w-full h-full object-cover" />
+                              ) : (
+                                <div className="text-[10px] text-slate-500 font-bold">{member.displayName?.substring(0, 2).toUpperCase() || 'P'}</div>
+                              )}
+                            </div>
+                            <div className="flex-1 min-w-0">
+                              <div className={cn("text-sm font-black tracking-wide", isMe ? "text-brand" : "text-white")}>
+                                {isMe ? 'You' : member.displayName}
+                              </div>
+                              <div className="text-[10px] text-slate-500 font-bold mt-0.5">
+                                {member.accuracy}% accuracy
+                                {member.trend === 'up' && <span className="text-emerald-400 ml-2">↑</span>}
+                                {member.trend === 'down' && <span className="text-red-400 ml-2">↓</span>}
+                              </div>
+                            </div>
+                            <div className="text-right">
+                              <div className="text-lg font-black font-display text-white">{member.points}</div>
+                              <div className="text-[10px] text-slate-600 font-bold">pts</div>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
               )}
 
               {activeTab === 'profile' && (
-                <section className="bg-surface-card border border-surface-border rounded-2xl p-6 md:p-8 flex flex-col shadow-xl">
-                  <h2 className="text-sm font-black uppercase tracking-[0.2em] text-white font-display mb-8">User Profile</h2>
-                  
-                  <div className="flex flex-col md:flex-row items-center gap-8 mb-10">
-                    <div className="w-24 h-24 md:w-32 md:h-32 rounded-full border-4 border-white/20 bg-black overflow-hidden flex items-center justify-center shrink-0 relative group shadow-2xl">
+                <div className="flex flex-col gap-6">
+                  {/* Profile Header */}
+                  <div className="bg-surface-card border border-surface-border rounded-2xl p-6 flex flex-col sm:flex-row items-center gap-5">
+                    <div className="w-16 h-16 rounded-full bg-black overflow-hidden border-2 border-surface-border flex items-center justify-center shrink-0 relative group">
                       {dbUser?.avatarUrl || user.photoURL ? (
-                        <img src={dbUser?.avatarUrl || user.photoURL} alt="Avatar" className="w-full h-full object-cover" />
+                        <img src={dbUser?.avatarUrl || user.photoURL} alt="" className="w-full h-full object-cover" />
                       ) : (
-                        <span className="text-3xl text-slate-500 font-black">{dbUser?.displayName?.substring(0, 2).toUpperCase() || 'P'}</span>
+                        <span className="text-lg text-slate-500 font-black">{dbUser?.displayName?.substring(0, 2).toUpperCase() || 'P'}</span>
                       )}
-                      
-                      <button 
+                      <button
                         onClick={async () => {
                           const randomSeed = Math.random().toString(36).substring(7);
                           const url = `https://api.dicebear.com/7.x/avataaars/svg?seed=${randomSeed}`;
@@ -763,148 +736,97 @@ export default function Dashboard({ user, auth }: DashboardProps) {
                               headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
                               body: JSON.stringify({ avatarUrl: url })
                             });
-                            // @ts-ignore
-                            setDbUser(prev => ({...prev, avatarUrl: url}));
-                            showToast('Avatar generated!', 'success');
+                            setDbUser(prev => prev ? {...prev, avatarUrl: url} : prev);
+                            showToast('Avatar updated', 'success');
                           } catch (e) {
                             showToast('Failed to update avatar', 'error');
                           }
                         }}
-                        className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center font-bold text-[10px] uppercase tracking-widest text-white backdrop-blur-sm"
+                        className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center text-[9px] font-black uppercase tracking-widest text-white"
                       >
-                         Change
+                        Change
                       </button>
                     </div>
-                    <div className="text-center md:text-left">
-                      <h3 className="text-3xl font-black text-white tracking-tighter mb-1">{dbUser?.displayName || user.displayName || 'Guest Player'}</h3>
-                      <p className="text-xs text-slate-400 font-bold uppercase tracking-widest">{user.email}</p>
-                      
-                      <div className="flex flex-wrap items-center justify-center md:justify-start gap-4 mt-6">
-                        <div className="bg-surface-hover border border-surface-border px-4 py-2 rounded-xl">
-                           <div className="text-[10px] text-slate-500 font-black uppercase tracking-widest mb-1">Total Points</div>
-                           <div className="text-xl font-black text-white">{leaderboard.find(l => l.id === dbUser?.id)?.points || 0}</div>
-                        </div>
-                        <div className="bg-surface-hover border border-surface-border px-4 py-2 rounded-xl">
-                           <div className="text-[10px] text-slate-500 font-black uppercase tracking-widest mb-1">Accuracy</div>
-                           <div className="text-xl font-black text-white">{leaderboard.find(l => l.id === dbUser?.id)?.accuracy || 0}%</div>
-                        </div>
+                    <div className="flex-1 text-center sm:text-left">
+                      <h3 className="text-xl font-black text-white tracking-tight">{dbUser?.displayName || user.displayName || 'Guest'}</h3>
+                      {user.email && <p className="text-xs text-slate-500 mt-0.5">{user.email}</p>}
+                    </div>
+                    <div className="flex items-center gap-3">
+                      <div className="text-center px-4 py-2 bg-surface-base border border-surface-border rounded-xl">
+                        <div className="text-lg font-black text-white">{leaderboard.find(l => l.id === dbUser?.id)?.points || 0}</div>
+                        <div className="text-[9px] text-slate-500 font-bold uppercase tracking-widest">Points</div>
+                      </div>
+                      <div className="text-center px-4 py-2 bg-surface-base border border-surface-border rounded-xl">
+                        <div className="text-lg font-black text-white">{leaderboard.find(l => l.id === dbUser?.id)?.accuracy || 0}%</div>
+                        <div className="text-[9px] text-slate-500 font-bold uppercase tracking-widest">Accuracy</div>
                       </div>
                     </div>
                   </div>
-                  
-                  <div className="mt-8 border-t border-surface-border pt-8 mb-6">
-                     <h3 className="text-sm font-black uppercase tracking-[0.2em] text-slate-400 font-display mb-4">Pick History</h3>
-                     <div className="flex flex-col gap-3">
-                        {picks.length === 0 ? (
-                           <div className="text-xs text-slate-500 font-bold uppercase tracking-widest text-center py-6">No picks made yet</div>
-                        ) : picks.map(p => {
-                           const m = matches.find(x => x.id === p.matchId);
-                           if(!m) return null;
-                           return (
-                             <div key={p.id} className="flex justify-between items-center bg-black border border-surface-border p-4 rounded-xl">
-                               <div className="flex flex-col gap-1">
-                                  <span className="text-[10px] text-slate-500 font-black uppercase tracking-widest leading-none">{m.teamA} vs {m.teamB}</span>
-                                  <span className="text-white font-bold text-sm">
-                                    {p.predictedScoreA != null && p.predictedScoreB != null && p.predictedScoreA >= 0
-                                      ? `Predicted: ${m.teamA} ${p.predictedScoreA} - ${p.predictedScoreB} ${m.teamB}`
-                                      : `Pick: ${p.selection === 'teamA' ? m.teamA : (p.selection === 'teamB' ? m.teamB : (p.selection === 'draw' ? 'Draw' : p.selection))}`}
-                                  </span>
-                               </div>
-                               <div className="text-right">
-                                  <span className="text-[10px] uppercase font-black tracking-widest text-slate-500">{m.status}</span>
-                               </div>
-                             </div>
-                           );
-                        })}
-                     </div>
+
+                  {/* Pick History */}
+                  <div className="flex flex-col gap-2">
+                    <h3 className="text-xs font-black uppercase tracking-[0.15em] text-slate-400 px-1">Pick History</h3>
+                    {picks.length === 0 ? (
+                      <div className="bg-surface-card border border-surface-border rounded-xl p-8 text-center">
+                        <p className="text-slate-500 text-xs font-bold uppercase tracking-widest">No picks yet</p>
+                      </div>
+                    ) : picks.map(p => {
+                      const m = matches.find(x => x.id === p.matchId);
+                      if (!m) return null;
+                      return (
+                        <div key={p.id} className="flex items-center justify-between bg-surface-card border border-surface-border p-3 rounded-xl">
+                          <div className="flex-1 min-w-0">
+                            <div className="text-[10px] text-slate-500 font-bold uppercase tracking-wider">{m.teamA} vs {m.teamB}</div>
+                            <div className="text-white font-bold text-sm mt-0.5">
+                              {p.predictedScoreA != null && p.predictedScoreB != null && p.predictedScoreA >= 0
+                                ? `${p.predictedScoreA} - ${p.predictedScoreB}`
+                                : p.selection === 'teamA' ? m.teamA : (p.selection === 'teamB' ? m.teamB : 'Draw')}
+                            </div>
+                          </div>
+                          <span className={cn("text-[10px] uppercase font-black tracking-widest", m.status === 'finished' ? "text-slate-500" : "text-brand")}>{m.status}</span>
+                        </div>
+                      );
+                    })}
                   </div>
-                  
-                  <div className="mt-auto border-t border-surface-border pt-6 flex justify-end">
-                    <button onClick={() => auth.signOut()} className="flex items-center gap-2 bg-red-500/10 hover:bg-red-500/20 text-red-500 px-6 py-3 rounded-xl text-xs font-black uppercase tracking-widest transition-colors border border-red-500/20">
-                      <LogOut className="w-4 h-4" />
-                      Sign Out
-                    </button>
-                  </div>
-                </section>
+
+                  <button onClick={() => auth.signOut()} className="flex items-center justify-center gap-2 bg-red-500/10 hover:bg-red-500/20 text-red-400 px-6 py-3 rounded-xl text-xs font-black uppercase tracking-widest transition-colors border border-red-500/20 mt-4">
+                    <LogOut className="w-4 h-4" />
+                    Sign Out
+                  </button>
+                </div>
               )}
               {activeTab === 'feed' && (
-                <div className="flex flex-col gap-6">
-                  {/* Social Highlights */}
-                  <section className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                    <div className="bg-surface-card border border-surface-border rounded-2xl p-5 shadow-lg flex flex-col justify-center transition-all hover:bg-surface-card">
-                      <div className="flex items-center gap-2 mb-2">
-                        <ArrowUpRight className="w-4 h-4 text-emerald-400" />
-                        <span className="text-[10px] uppercase font-black tracking-widest text-slate-500">Most Backed Team</span>
-                      </div>
-                      <div className="text-xl font-black text-white">Brazil</div>
-                      <div className="text-xs text-slate-400 mt-1 font-medium">14 out of 19 players picked Brazil vs France</div>
-                    </div>
-                    <div className="bg-surface-card border border-surface-border rounded-2xl p-5 shadow-lg flex flex-col justify-center transition-all hover:bg-surface-card">
-                      <div className="flex items-center gap-2 mb-2">
-                        <Scale className="w-4 h-4 text-blue-400" />
-                        <span className="text-[10px] uppercase font-black tracking-widest text-slate-500">Most Divided Match</span>
-                      </div>
-                      <div className="text-md font-bold text-white mb-2">Argentina <span className="text-slate-500 font-medium">vs</span> Spain</div>
-                      <div className="flex items-center gap-1 w-full h-1.5 rounded-full overflow-hidden">
-                        <div className="bg-blue-500 h-full" style={{ width: '40%' }}></div>
-                        <div className="bg-slate-600 h-full" style={{ width: '20%' }}></div>
-                        <div className="bg-red-500 h-full" style={{ width: '40%' }}></div>
-                      </div>
-                    </div>
-                    <div className="bg-surface-card border border-surface-border rounded-2xl p-5 shadow-lg flex flex-col justify-center transition-all hover:bg-surface-card">
-                      <div className="flex items-center gap-2 mb-2">
-                        <ArrowDownRight className="w-4 h-4 text-purple-400" />
-                        <span className="text-[10px] uppercase font-black tracking-widest text-slate-500">Biggest Contrarian</span>
-                      </div>
-                      <div className="text-xl font-black text-white">@Gaurav</div>
-                      <div className="text-xs text-slate-400 mt-1 font-medium">Only player to back Germany</div>
-                    </div>
-                    <div className="bg-surface-card border border-surface-border rounded-2xl p-5 shadow-lg flex flex-col justify-center transition-all hover:bg-surface-card">
-                      <div className="flex items-center gap-2 mb-2">
-                        <Flame className="w-4 h-4 text-orange-400" />
-                        <span className="text-[10px] uppercase font-black tracking-widest text-slate-500">Biggest Mover</span>
-                      </div>
-                      <div className="text-xl font-black text-white">@Heet</div>
-                      <div className="text-xs text-slate-400 mt-1 font-medium">Jumped 4 spots this week</div>
-                    </div>
-                  </section>
+                <div className="flex flex-col gap-4">
+                  <div className="flex items-center justify-between">
+                    <h2 className="text-sm font-black uppercase tracking-[0.15em] text-white font-display">Activity</h2>
+                  </div>
 
-                  {/* Curated Feed (Mock) */}
-                  <section className="flex flex-col gap-4">
-                    <div className="flex items-center justify-between pb-2 bg-black sticky top-0 z-10 pt-4">
-                       <h2 className="text-xs font-black uppercase tracking-[0.2em] text-white font-display flex items-center gap-2">
-                         <MessageSquare className="w-4 h-4" />
-                         Recent Activity
-                       </h2>
+                  {feedEvents.length === 0 ? (
+                    <div className="bg-surface-card border border-surface-border rounded-2xl p-12 text-center">
+                      <Flame className="w-6 h-6 text-slate-600 mx-auto mb-3" />
+                      <p className="text-slate-500 text-xs font-bold uppercase tracking-widest">No activity yet</p>
+                      <p className="text-slate-600 text-xs mt-1">Score events will appear here as matches finish.</p>
                     </div>
-                    
-                    {feedEvents.length === 0 ? (
-                       <div className="bg-surface-card border border-surface-border rounded-2xl p-8 text-center text-slate-500 text-xs font-bold uppercase tracking-widest">
-                         No activity yet.
-                       </div>
-                    ) : (
-                       feedEvents.map((event, idx) => (
-                         <div key={idx} className="bg-surface-card border border-surface-border rounded-2xl p-5 shadow-lg flex items-start gap-4">
-                            <div className="w-10 h-10 rounded-full bg-black overflow-hidden border border-surface-border flex items-center justify-center shrink-0">
-                               {event.userAvatar ? (
-                                 <img src={event.userAvatar} alt="Avatar" className="w-full h-full object-cover" />
-                               ) : (
-                                 <div className="text-xs text-slate-500 font-bold">{event.userDisplayName?.substring(0, 2).toUpperCase() || 'P'}</div>
-                               )}
-                            </div>
-                            <div className="flex-1">
-                               <div className="flex justify-between items-start mb-1">
-                                  <span className="text-sm font-bold text-white">{event.userDisplayName}</span>
-                                  <span className="text-[10px] text-slate-500 uppercase font-black tracking-widest">{formatDistanceToNow(new Date(event.createdAt), { addSuffix: true })}</span>
-                               </div>
-                               <p className="text-sm text-slate-400">
-                                 Scored <span className="text-brand font-black">+{event.points} pts</span> for {event.teamA} {event.scoreA} - {event.scoreB} {event.teamB}
-                               </p>
-                            </div>
-                         </div>
-                       ))
-                    )}
-                  </section>
+                  ) : (
+                    feedEvents.map((event, idx) => (
+                      <div key={idx} className="bg-surface-card border border-surface-border rounded-xl p-4 flex items-center gap-4">
+                        <div className="w-9 h-9 rounded-full bg-black overflow-hidden border border-surface-border flex items-center justify-center shrink-0">
+                          {event.userAvatar ? (
+                            <img src={event.userAvatar} alt="" className="w-full h-full object-cover" />
+                          ) : (
+                            <div className="text-[10px] text-slate-500 font-bold">{event.userDisplayName?.substring(0, 2).toUpperCase() || 'P'}</div>
+                          )}
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <div className="text-xs font-bold text-white">{event.userDisplayName}</div>
+                          <div className="text-xs text-slate-400 mt-0.5">
+                            <span className="text-brand font-black">+{event.points}</span> for {event.teamA} {event.scoreA}-{event.scoreB} {event.teamB}
+                          </div>
+                        </div>
+                        <span className="text-[10px] text-slate-600 font-bold tracking-wider uppercase shrink-0">{formatDistanceToNow(new Date(event.createdAt), { addSuffix: true })}</span>
+                      </div>
+                    ))
+                  )}
                 </div>
               )}
               {activeTab === 'finance' && (
@@ -999,7 +921,8 @@ export default function Dashboard({ user, auth }: DashboardProps) {
               )}
             </div>
 
-            {/* Right Column / Sidebar info */}
+            {/* Right Column / Sidebar info - only on dashboard/matches */}
+            {(activeTab === 'dashboard' || activeTab === 'matches') && (
             <div className="col-span-1 lg:col-span-4 flex flex-col gap-6">
               
               {(activeTab === 'dashboard') && (
@@ -1180,7 +1103,7 @@ export default function Dashboard({ user, auth }: DashboardProps) {
                             });
                           } else if (cStatus.gamesToMakePick === 2 && cStatus.currentStreak > 0) {
                             intel.push({
-                              icon: <Scale className="w-4 h-4 text-yellow-400" />,
+                              icon: <Zap className="w-4 h-4 text-yellow-400" />,
                               title: "COMPLIANCE WARNING",
                               desc: `A pick is required within the next 2 games.`,
                             });
@@ -1242,6 +1165,7 @@ export default function Dashboard({ user, auth }: DashboardProps) {
               )}
 
             </div>
+            )}
           </div>
         </main>
       </div>
