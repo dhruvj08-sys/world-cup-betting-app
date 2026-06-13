@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { format, formatDistanceToNow, isPast, differenceInSeconds } from 'date-fns';
+import { format, differenceInSeconds, isPast } from 'date-fns';
 import { Lock, Clock, Pin } from 'lucide-react';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
@@ -13,7 +13,7 @@ interface MatchCardProps {
   key?: React.Key;
   match: Match;
   pick: Pick | undefined;
-  onPick: (id: number, sel: string, scoreA?: number, scoreB?: number) => void;
+  onPick: (id: number, sel: string) => void;
   onClick?: () => void;
   isPinned?: boolean;
   onTogglePin?: (id: number) => void;
@@ -29,78 +29,57 @@ export default function MatchCard({ match, pick, onPick, onClick, isPinned, onTo
     return new Date(d);
   };
   const [now, setNow] = useState(new Date());
-  
-  // Local state for score inputs
-  const [scoreA, setScoreA] = useState<string>(pick?.predictedScoreA?.toString() || '');
-  const [scoreB, setScoreB] = useState<string>(pick?.predictedScoreB?.toString() || '');
-  const [showSaved, setShowSaved] = useState(false);
 
   useEffect(() => {
-    // Only update every second if the match is not locked yet
     if (isPast(parseDate(match.lockTime))) return;
-    
-    const interval = setInterval(() => {
-      setNow(new Date());
-    }, 1000);
+    const interval = setInterval(() => setNow(new Date()), 1000);
     return () => clearInterval(interval);
   }, [match.lockTime]);
 
   const locked = parseDate(match.lockTime) <= now;
   const isLive = locked && parseDate(match.kickoffTime) <= now && match.status !== 'finished';
   const isFinished = match.status === 'finished';
-  
-  const handleScoreSubmit = (e: React.MouseEvent) => {
-    e.stopPropagation();
-    if (locked) return;
-    
-    const sA = parseInt(scoreA);
-    const sB = parseInt(scoreB);
-    
-    if (isNaN(sA) || isNaN(sB)) return;
-    
-    let selection = 'draw';
-    if (sA > sB) selection = 'teamA';
-    if (sB > sA) selection = 'teamB';
-    
-    onPick(match.id, selection, sA, sB);
-    
-    // Subtle saved animation
-    setShowSaved(true);
-    setTimeout(() => setShowSaved(false), 2000);
+
+  const handlePick = (selection: string) => {
+    if (locked || pick) return;
+    onPick(match.id, selection);
+  };
+
+  const getPickLabel = (selection: string) => {
+    if (selection === 'teamA') return match.teamA;
+    if (selection === 'teamB') return match.teamB;
+    if (selection === 'draw') return 'Draw';
+    return '-';
   };
 
   const getBtnStyle = (selection: string) => {
     const isSelected = pick?.selection === selection;
     if (locked) {
       return cn(
-        "py-2 rounded font-bold text-[10px] md:text-xs transition-colors uppercase tracking-widest relative overflow-hidden",
-        isSelected 
-          ? "bg-brand/10 text-white border border-brand/30 shadow-[0_0_15px_var(--color-brand-muted)]" 
+        "py-2.5 px-3 rounded-xl font-bold text-xs transition-colors uppercase tracking-widest text-center",
+        isSelected
+          ? "bg-brand/10 text-white border border-brand/30 shadow-[0_0_15px_var(--color-brand-muted)]"
           : "bg-surface-base border border-transparent text-slate-500 opacity-40 cursor-not-allowed"
       );
     }
-
+    if (pick) {
+      return cn(
+        "py-2.5 px-3 rounded-xl font-bold text-xs transition-colors uppercase tracking-widest text-center",
+        isSelected
+          ? "bg-brand text-black border border-brand shadow-[0_0_15px_var(--color-brand-muted)]"
+          : "bg-surface-base border border-transparent text-slate-500 opacity-40 cursor-not-allowed"
+      );
+    }
     return cn(
-      "py-2 rounded font-bold text-[10px] md:text-xs transition-colors uppercase tracking-widest relative overflow-hidden flex flex-col justify-center items-center gap-0.5",
-      isSelected 
-        ? "bg-brand text-black border border-brand shadow-[0_0_15px_var(--color-brand-muted)]" 
-        : "bg-surface-base hover:bg-surface-hover border border-transparent text-slate-300"
+      "py-2.5 px-3 rounded-xl font-bold text-xs transition-colors uppercase tracking-widest text-center cursor-pointer",
+      "bg-surface-base hover:bg-surface-hover border border-transparent text-slate-300 hover:text-white"
     );
   };
 
-  // Convert selection enum back to user-readable (team names) or 'Draw'
-  const getPickLabel = (selection: string) => {
-    if (selection === 'teamA') return match.teamA;
-    if (selection === 'teamB') return match.teamB;
-    if (selection === 'draw') return 'Draw';
-    return '-';
-  }
-  
-  // Calculate canonical formatted lock time
   const getLockTimeDisplay = () => {
     const lockDate = parseDate(match.lockTime);
     const diffSeconds = differenceInSeconds(lockDate, now);
-    
+
     if (locked) {
       if (isFinished) return <span className="flex items-center gap-1.5 text-slate-500"><Lock className="w-3 h-3" /> FT</span>;
       if (isLive) return <span className="flex items-center gap-1.5 text-red-500 animate-pulse"><Clock className="w-3 h-3" /> LIVE</span>;
@@ -111,33 +90,30 @@ export default function MatchCard({ match, pick, onPick, onClick, isPinned, onTo
     const h = Math.floor((diffSeconds % 86400) / 3600);
     const m = Math.floor((diffSeconds % 3600) / 60);
     const s = diffSeconds % 60;
-    
+
     let countdown = "";
-    if (d > 0) {
-      countdown = `${d}d ${h}h`;
-    } else if (h > 0) {
-      countdown = `${h}h ${m}m`;
-    } else {
-      countdown = `${m}m ${s.toString().padStart(2, '0')}s`;
-    }
+    if (d > 0) countdown = `${d}d ${h}h`;
+    else if (h > 0) countdown = `${h}h ${m}m`;
+    else countdown = `${m}m ${s.toString().padStart(2, '0')}s`;
 
     return <span className={cn("flex items-center gap-1 font-mono uppercase", diffSeconds < 3600 ? "text-red-400 font-black animate-pulse" : "text-brand/80")}><Clock className="w-3 h-3" /> LOCKS IN {countdown}</span>;
   };
 
   return (
-    <div 
+    <div
       onClick={onClick}
       className={cn(
-      "bg-surface-card border rounded-2xl p-3 md:p-4 flex flex-col gap-2.5 md:gap-3 group transition-all cursor-pointer backdrop-blur-sm relative overflow-hidden",
-      isLive ? "border-red-500/50 shadow-[0_0_20px_rgba(239,68,68,0.2)] opacity-100" : (locked ? "border-surface-border opacity-60" : "border-surface-border shadow-xl hover:border-surface-border")
-    )}>
+        "bg-surface-card border rounded-2xl p-3 md:p-4 flex flex-col gap-2.5 md:gap-3 group transition-all cursor-pointer backdrop-blur-sm relative overflow-hidden",
+        isLive ? "border-red-500/50 shadow-[0_0_20px_rgba(239,68,68,0.2)] opacity-100" : (locked ? "border-surface-border opacity-60" : "border-surface-border shadow-xl hover:border-surface-border")
+      )}>
       {isLive && <div className="absolute inset-0 bg-red-500/5 animate-pulse pointer-events-none"></div>}
-      {/* Header tags */}
+
+      {/* Header */}
       <div className="flex justify-between items-center text-[10px] font-bold uppercase tracking-wider text-slate-500">
         <div className="flex items-center gap-2">
           <span>{match.stage} {match.groupName ? `- ${match.groupName}` : ''}</span>
           {onTogglePin && (
-            <button 
+            <button
               onClick={(e) => { e.stopPropagation(); onTogglePin(match.id); }}
               className="hover:text-white transition-colors"
             >
@@ -159,14 +135,14 @@ export default function MatchCard({ match, pick, onPick, onClick, isPinned, onTo
 
         <div className="flex flex-col items-center gap-1 w-[24%]">
           <div className="px-3 py-2.5 sm:px-5 bg-surface-base border border-surface-border rounded-xl text-xl md:text-2xl font-black text-white tabular-nums shadow-inner relative overflow-hidden flex items-center justify-center min-w-[80px] sm:min-w-[100px]">
-             {locked && (isFinished || isLive) ? (
-               `${match.scoreA !== null ? match.scoreA : 0} - ${match.scoreB !== null ? match.scoreB : 0}`
-             ) : (
-               <span className="font-mono tracking-tighter text-sm sm:text-xl">{format(parseDate(match.kickoffTime), 'HH:mm')}</span>
-             )}
+            {locked && (isFinished || isLive) ? (
+              `${match.scoreA !== null ? match.scoreA : 0} - ${match.scoreB !== null ? match.scoreB : 0}`
+            ) : (
+              <span className="font-mono tracking-tighter text-sm sm:text-xl">{format(parseDate(match.kickoffTime), 'HH:mm')}</span>
+            )}
           </div>
         </div>
-        
+
         <div className="flex flex-col items-end gap-1 w-[38%] text-right">
           <div className="flex flex-col-reverse sm:flex-row sm:items-center justify-end gap-1 sm:gap-3">
             <span className="font-display font-black text-sm sm:text-lg md:text-xl leading-tight line-clamp-2">{match.teamB}</span>
@@ -175,89 +151,69 @@ export default function MatchCard({ match, pick, onPick, onClick, isPinned, onTo
         </div>
       </div>
 
-      {/* Action Area */}
-      {!locked ? (
-        <div className="mt-3 flex flex-col gap-2" onClick={e => e.stopPropagation()}>
-          <div className="flex justify-between items-center px-1">
-             <span className="text-[10px] font-black uppercase text-slate-500 tracking-[0.1em]">Predict Final Score</span>
-             {pick && (
-                <span className="flex items-center gap-1 text-[10px] font-bold text-brand uppercase tracking-widest bg-brand/10 px-2 py-0.5 rounded-sm">
-                  <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}><path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" /></svg>
-                  Picked
-                </span>
-             )}
+      {/* Pick Buttons */}
+      <div className="mt-2 flex flex-col gap-2" onClick={e => e.stopPropagation()}>
+        {!locked && !pick && (
+          <span className="text-[10px] font-black uppercase text-slate-500 tracking-[0.1em] px-1">Pick your winner</span>
+        )}
+        {!locked && pick && (
+          <div className="flex items-center justify-between px-1">
+            <span className="text-[10px] font-black uppercase text-slate-500 tracking-[0.1em]">Your pick</span>
+            <span className="flex items-center gap-1 text-[10px] font-bold text-brand uppercase tracking-widest bg-brand/10 px-2 py-0.5 rounded-sm">
+              <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}><path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" /></svg>
+              Locked in
+            </span>
           </div>
-          <div className="flex items-center gap-2">
-            <div className={cn("flex flex-1 items-center border rounded-xl overflow-hidden transition-all", pick ? "bg-surface-base/50 border-surface-border/50" : "bg-surface-base border-surface-border focus-within:border-brand/50 focus-within:ring-1 focus-within:ring-brand/50")}>
-              <input 
-                type="number" 
-                min="0"
-                max="99"
-                value={scoreA}
-                onChange={(e) => setScoreA(e.target.value)}
-                disabled={!!pick}
-                className="w-full bg-transparent text-center text-sm md:text-base font-black text-white p-3 outline-none disabled:opacity-50 disabled:cursor-not-allowed"
-                placeholder="0"
-              />
-              <div className="w-px h-8 bg-surface-border shrink-0"></div>
-              <input 
-                type="number" 
-                min="0"
-                max="99"
-                value={scoreB}
-                onChange={(e) => setScoreB(e.target.value)}
-                disabled={!!pick}
-                className="w-full bg-transparent text-center text-sm md:text-base font-black text-white p-3 outline-none disabled:opacity-50 disabled:cursor-not-allowed"
-                placeholder="0"
-              />
-            </div>
-            {!pick && (
-              <button 
-                onClick={handleScoreSubmit} 
-                disabled={!scoreA || !scoreB}
-                className="h-[52px] px-6 bg-brand hover:bg-brand-hover text-black font-black text-xs uppercase tracking-widest rounded-xl transition-all disabled:opacity-50 disabled:cursor-not-allowed group relative overflow-hidden flex items-center justify-center shrink-0"
-              >
-                {showSaved ? (
-                  <span className="animate-in zoom-in duration-200">
-                    <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}><path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" /></svg>
-                  </span>
-                ) : (
-                  <span>LOCK IN</span>
-                )}
-              </button>
-            )}
-          </div>
+        )}
+        <div className="grid grid-cols-3 gap-2">
+          <button onClick={() => handlePick('teamA')} disabled={locked || !!pick} className={getBtnStyle('teamA')}>
+            {match.teamA}
+          </button>
+          <button onClick={() => handlePick('draw')} disabled={locked || !!pick} className={getBtnStyle('draw')}>
+            Draw
+          </button>
+          <button onClick={() => handlePick('teamB')} disabled={locked || !!pick} className={getBtnStyle('teamB')}>
+            {match.teamB}
+          </button>
         </div>
-      ) : (
-        <>
-          {pick ? (
-            <div className="mt-4 border-t border-surface-border pt-4 flex flex-col sm:flex-row sm:items-center justify-between text-xs text-slate-400 w-full gap-2">
-               <div className="flex items-center gap-2">
-                  <span className="w-2 h-2 rounded-full bg-brand"></span> Your prediction: <strong className="text-white ml-1 font-mono">{pick.predictedScoreA ?? '-'} : {pick.predictedScoreB ?? '-'}</strong>
-               </div>
-               {match.status === 'finished' && 
-                 <div className="font-semibold text-right">
-                   {(pick.predictedScoreA === match.scoreA && pick.predictedScoreB === match.scoreB) ? <span className="text-brand bg-brand-muted px-2.5 py-1 rounded-md border border-brand/20 shadow-[0_0_10px_var(--color-brand-muted)]">+5 pts</span> : (pick.selection === match.result ? <span className="text-brand/80 bg-brand-muted px-2.5 py-1 rounded-md border border-brand/10">+2 pts</span> : <span className="text-slate-500 bg-surface-base px-2.5 py-1 rounded-md border border-surface-border">0 pts</span>)}
-                 </div>
-               }
-            </div>
-          ) : (
-            <div className="flex flex-col items-center justify-center mt-3 border-t border-surface-border pt-3 gap-1">
-              <span className="text-[10px] font-black uppercase text-slate-400 tracking-widest">Pick Window Closed</span>
-              <span className="text-[9px] font-bold text-slate-500 uppercase tracking-widest">No pick was submitted</span>
-            </div>
-          )}
-          
-          {(match.poolStatus === 'excluded' || match.status === 'cancelled') && (
-            <div className="mt-3 border-t border-surface-border pt-3 flex justify-center text-xs w-full">
-              <span className="text-[10px] font-black uppercase text-red-500 tracking-widest">
-                {match.status === 'cancelled' ? 'MATCH CANCELLED' : 'EXCLUDED FROM POOL'}
-              </span>
-            </div>
-          )}
 
-        </>
+        {/* Result after match finishes */}
+        {locked && pick && isFinished && (
+          <div className="flex items-center justify-between text-xs text-slate-400 pt-1">
+            <span>You picked: <strong className="text-white">{getPickLabel(pick.selection)}</strong></span>
+            <span className="font-semibold">
+              {pick.selection === match.result
+                ? <span className="text-brand bg-brand-muted px-2.5 py-1 rounded-md border border-brand/20 shadow-[0_0_10px_var(--color-brand-muted)]">+{POINTS_BY_STAGE[match.stage] || 0} pts</span>
+                : <span className="text-slate-500 bg-surface-base px-2.5 py-1 rounded-md border border-surface-border">0 pts</span>
+              }
+            </span>
+          </div>
+        )}
+
+        {/* No pick submitted */}
+        {locked && !pick && (
+          <div className="flex flex-col items-center justify-center pt-1 gap-1">
+            <span className="text-[10px] font-black uppercase text-slate-400 tracking-widest">No pick submitted</span>
+          </div>
+        )}
+      </div>
+
+      {(match.poolStatus === 'excluded' || match.status === 'cancelled') && (
+        <div className="mt-1 border-t border-surface-border pt-2 flex justify-center text-xs w-full">
+          <span className="text-[10px] font-black uppercase text-red-500 tracking-widest">
+            {match.status === 'cancelled' ? 'MATCH CANCELLED' : 'EXCLUDED FROM POOL'}
+          </span>
+        </div>
       )}
     </div>
   );
 }
+
+const POINTS_BY_STAGE: Record<string, number> = {
+  "Group Stage": 30,
+  "Round of 32": 40,
+  "Round of 16": 50,
+  "Quarter Finals": 80,
+  "Semi Finals": 100,
+  "Final": 150
+};

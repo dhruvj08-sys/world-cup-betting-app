@@ -52,14 +52,11 @@ app.get("/api/matches", requireAuth, async (req: AuthRequest, res) => {
 // Pick submission
 app.post("/api/picks", requireAuth, async (req: AuthRequest, res) => {
   try {
-    const { matchId, roomId, selection, predictedScoreA, predictedScoreB } = req.body;
+    const { matchId, roomId, selection } = req.body;
     const userId = req.dbUser.id;
 
-    if (
-      (predictedScoreA !== undefined && predictedScoreA < 0) || 
-      (predictedScoreB !== undefined && predictedScoreB < 0)
-    ) {
-      return res.status(400).json({ error: "Scores must be non-negative" });
+    if (!['teamA', 'teamB', 'draw'].includes(selection)) {
+      return res.status(400).json({ error: "Selection must be teamA, teamB, or draw" });
     }
 
     // Ensure match exists and is not locked
@@ -86,16 +83,14 @@ app.post("/api/picks", requireAuth, async (req: AuthRequest, res) => {
 
     if (existingPick.length) {
       await db.update(picks)
-        .set({ selection, predictedScoreA, predictedScoreB, updatedAt: new Date() })
+        .set({ selection, updatedAt: new Date() })
         .where(eq(picks.id, existingPick[0].id));
     } else {
       await db.insert(picks).values({
         userId,
         matchId,
         roomId,
-        selection,
-        predictedScoreA,
-        predictedScoreB
+        selection
       });
     }
 
@@ -311,19 +306,6 @@ app.get("/api/leaderboard/:roomId", requireAuth, async (req: AuthRequest, res) =
     res.json(leaderboard);
   } catch (error) {
      res.status(500).json({ error: "Failed to fetch leaderboard", cause: error });
-  }
-});
-
-// Mock Stripe payment
-app.post("/api/payment/mock-stripe", requireAuth, async (req: AuthRequest, res) => {
-  try {
-    const { roomId } = req.body;
-    await db.update(roomMembers)
-      .set({ hasPaid: true })
-      .where(and(eq(roomMembers.userId, req.dbUser.id), eq(roomMembers.roomId, roomId)));
-    res.json({ success: true });
-  } catch (error) {
-    res.status(500).json({ error: "Payment failed" });
   }
 });
 

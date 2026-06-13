@@ -123,16 +123,7 @@ export function calculateScore(matches: MatchDTO[], picks: PickDTO[], adminOverr
     
     const userPick = pickMap.get(match.id);
     if (userPick && userPick.selection === match.result) {
-      // Check admin overrides here if provided
-      let points = POINTS_BY_STAGE[match.stage] || 0;
-      
-      // Bonus for exact score prediction
-      // We assume pick has predictedScoreA and predictedScoreB (which we should add to PickDTO)
-      const exactScore = userPick.predictedScoreA === match.scoreA && userPick.predictedScoreB === match.scoreB;
-      if (exactScore) {
-        points += 5; // e.g., +5 bonus for exact score
-      }
-
+      const points = POINTS_BY_STAGE[match.stage] || 0;
       score += points;
       correct++;
     }

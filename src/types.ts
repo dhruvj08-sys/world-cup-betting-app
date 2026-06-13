@@ -58,7 +58,6 @@ export interface LeaderboardEntry {
   bonusPoints: number;
   totalPoints: number;
   correctPicks: number;
-  perfectScores: number;
   trend: 'up' | 'down' | 'stable';
   compliance?: any;
 }

@@ -182,10 +182,9 @@ export default function Dashboard({ user, auth }: DashboardProps) {
     setPinnedMatches(prev => prev.includes(matchId) ? prev.filter(id => id !== matchId) : [matchId, ...prev]);
   };
 
-  const handlePick = async (matchId: number, selection: string, predictedScoreA?: number, predictedScoreB?: number) => {
-    // Optimistic update
+  const handlePick = async (matchId: number, selection: string) => {
     const previousPicks = [...picks];
-    const newPicks = [...picks.filter(p => p.matchId !== matchId), { matchId, selection, predictedScoreA, predictedScoreB, roomId: room?.id }];
+    const newPicks = [...picks.filter(p => p.matchId !== matchId), { matchId, selection, roomId: room?.id }];
     setPicks(newPicks);
 
     try {
@@ -196,7 +195,7 @@ export default function Dashboard({ user, auth }: DashboardProps) {
           'Content-Type': 'application/json',
           Authorization: `Bearer ${token}`
         },
-        body: JSON.stringify({ matchId, roomId: room.id, selection, predictedScoreA, predictedScoreB })
+        body: JSON.stringify({ matchId, roomId: room.id, selection })
       });
       
       if (!res.ok) {
@@ -778,9 +777,7 @@ export default function Dashboard({ user, auth }: DashboardProps) {
                           <div className="flex-1 min-w-0">
                             <div className="text-[10px] text-slate-500 font-bold uppercase tracking-wider">{m.teamA} vs {m.teamB}</div>
                             <div className="text-white font-bold text-sm mt-0.5">
-                              {p.predictedScoreA != null && p.predictedScoreB != null && p.predictedScoreA >= 0
-                                ? `${p.predictedScoreA} - ${p.predictedScoreB}`
-                                : p.selection === 'teamA' ? m.teamA : (p.selection === 'teamB' ? m.teamB : 'Draw')}
+                              {p.selection === 'teamA' ? m.teamA : (p.selection === 'teamB' ? m.teamB : 'Draw')}
                             </div>
                           </div>
                           <span className={cn("text-[10px] uppercase font-black tracking-widest", m.status === 'finished' ? "text-slate-500" : "text-brand")}>{m.status}</span>
