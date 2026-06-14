@@ -4,6 +4,7 @@ export interface DbUser {
   email: string;
   displayName: string;
   avatarUrl: string | null;
+  poolName: string | null;
   role: string;
   isGlobalAdmin: boolean;
   createdAt: string;

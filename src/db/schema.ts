@@ -7,6 +7,7 @@ export const users = pgTable('users', {
   email: text('email').notNull(),
   displayName: text('display_name'),
   avatarUrl: text('avatar_url'),
+  poolName: text('pool_name'),
   isGlobalAdmin: boolean('is_global_admin').default(false).notNull(),
   createdAt: timestamp('created_at').defaultNow(),
 });

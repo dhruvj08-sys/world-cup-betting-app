@@ -2,7 +2,7 @@ import express from "express";
 import { requireAuth, AuthRequest } from "../src/middleware/auth.js";
 import { db } from "../src/db/index.js";
 import { matches, picks, roomMembers, rooms, users, auditLogs, scoreEvents } from "../src/db/schema.js";
-import { calculateScore, getCurrentComplianceStatus, MatchDTO, PickDTO } from "../src/lib/engine.js";
+import { calculateScore, getCurrentComplianceStatus, POINTS_BY_STAGE, MatchDTO, PickDTO } from "../src/lib/engine.js";
 import { and, asc, desc, eq } from "drizzle-orm";
 
 const app = express();
@@ -42,10 +42,16 @@ app.post("/api/me/avatar", requireAuth, async (req: AuthRequest, res) => {
 app.get("/api/matches", requireAuth, async (req: AuthRequest, res) => {
   try {
     const allMatches = await db.select().from(matches).orderBy(asc(matches.kickoffTime));
-    res.json(allMatches);
+    const withResult = allMatches.map(m => ({
+      ...m,
+      result: m.scoreA !== null && m.scoreB !== null
+        ? (m.scoreA > m.scoreB ? 'teamA' : (m.scoreA < m.scoreB ? 'teamB' : 'draw'))
+        : undefined
+    }));
+    res.json(withResult);
   } catch (error) {
     console.error(error);
-    res.status(500).json({ error: "Failed to fetch matches.", cause: error });
+    res.status(500).json({ error: "Failed to fetch matches."});
   }
 });
 
@@ -97,7 +103,7 @@ app.post("/api/picks", requireAuth, async (req: AuthRequest, res) => {
     res.json({ success: true });
   } catch (error) {
     console.error(error);
-    res.status(500).json({ error: "Failed to save pick.", cause: error });
+    res.status(500).json({ error: "Failed to save pick."});
   }
 });
 
@@ -110,7 +116,7 @@ app.get("/api/picks/:roomId", requireAuth, async (req: AuthRequest, res) => {
     );
     res.json(userPicks);
   } catch (error) {
-    res.status(500).json({ error: "Failed to fetch picks", cause: error });
+    res.status(500).json({ error: "Failed to fetch picks"});
   }
 });
 
@@ -168,7 +174,7 @@ app.get("/api/room", requireAuth, async (req: AuthRequest, res) => {
     res.json({ ...activeRoom, hasPaid: userHasPaid });
   } catch (error) {
     console.error(error);
-    res.status(500).json({ error: "Failed to get room", cause: error });
+    res.status(500).json({ error: "Failed to get room"});
   }
 });
 
@@ -259,7 +265,7 @@ app.post("/api/admin/seed", requireAuth, async (req: AuthRequest, res) => {
     await db.insert(matches).values(mockMatches);
     res.json({ success: true });
   } catch (error) {
-    res.status(500).json({ error: "Failed", cause: error });
+    res.status(500).json({ error: "Failed"});
   }
 });
 
@@ -305,7 +311,7 @@ app.get("/api/leaderboard/:roomId", requireAuth, async (req: AuthRequest, res) =
 
     res.json(leaderboard);
   } catch (error) {
-     res.status(500).json({ error: "Failed to fetch leaderboard", cause: error });
+     res.status(500).json({ error: "Failed to fetch leaderboard"});
   }
 });
 
@@ -377,13 +383,16 @@ app.post("/api/webhook/sports-data", express.json(), async (req: express.Request
 
     await db.update(matches).set(updateData).where(eq(matches.id, match.id));
     
-    // Log the webhook action
-    await db.insert(auditLogs).values({
-      adminId: 1, // Assume system user or admin 1
-      action: 'WEBHOOK_UPDATE',
-      targetId: match.id,
-      details: JSON.stringify({ externalId: externalIdStr, updateData })
-    });
+    // Log the webhook action (find first admin for audit trail)
+    const admins = await db.select({ id: users.id }).from(users).where(eq(users.isGlobalAdmin, true)).limit(1);
+    if (admins.length) {
+      await db.insert(auditLogs).values({
+        adminId: admins[0].id,
+        action: 'WEBHOOK_UPDATE',
+        targetId: match.id,
+        details: JSON.stringify({ externalId: externalIdStr, updateData })
+      });
+    }
 
     res.json({ success: true, updatedMatchId: match.id });
   } catch (error) {
@@ -457,6 +466,24 @@ app.get("/api/cron/update-scores", async (req, res) => {
       if (fixture.goals?.away !== null) updateData.scoreB = fixture.goals.away;
 
       await db.update(matches).set(updateData).where(eq(matches.id, match.id));
+
+      // Create scoreEvents when a match transitions to finished
+      if (newStatus === 'finished' && match.status !== 'finished' && updateData.scoreA !== undefined && updateData.scoreB !== undefined) {
+        const result = updateData.scoreA > updateData.scoreB ? 'teamA' : (updateData.scoreA < updateData.scoreB ? 'teamB' : 'draw');
+        const stagePoints = POINTS_BY_STAGE[match.stage] || 0;
+        const matchPicks = await db.select().from(picks).where(eq(picks.matchId, match.id));
+        for (const p of matchPicks) {
+          const correct = p.selection === result;
+          await db.insert(scoreEvents).values({
+            userId: p.userId,
+            roomId: p.roomId,
+            matchId: match.id,
+            points: correct ? stagePoints : 0,
+            resultValid: correct,
+          });
+        }
+      }
+
       updated++;
     }
 
@@ -478,6 +505,7 @@ app.get("/api/finance/:roomId", requireAuth, async (req: AuthRequest, res) => {
       userId: users.id,
       displayName: users.displayName,
       avatarUrl: users.avatarUrl,
+      poolName: users.poolName,
       hasPaid: roomMembers.hasPaid,
       amountPaid: roomMembers.amountPaid,
       joinedAt: roomMembers.joinedAt,
@@ -537,6 +565,93 @@ app.get("/api/finance/:roomId/summary", requireAuth, async (req: AuthRequest, re
     res.json({ totalMembers, paidCount, unpaidCount: totalMembers - paidCount, potTotal, defaultBuyIn: 30 });
   } catch (error) {
     res.status(500).json({ error: "Failed to fetch finance summary" });
+  }
+});
+
+// Claim pool identity (link Firebase account to WhatsApp pool name)
+app.post("/api/me/claim-pool-name", requireAuth, async (req: AuthRequest, res) => {
+  try {
+    const { poolName } = req.body;
+    const VALID_NAMES = ['Kanav', 'Gaurav', 'Divij', 'Jainam', 'Rohan', 'Darsh', 'Moksh', 'Mir', 'Heet', 'DJ'];
+    if (!poolName || !VALID_NAMES.includes(poolName)) {
+      return res.status(400).json({ error: "Invalid pool name" });
+    }
+
+    const existing = await db.select().from(users).where(eq(users.poolName, poolName)).limit(1);
+    if (existing.length && existing[0].id !== req.dbUser.id) {
+      return res.status(409).json({ error: `${poolName} is already claimed by another account` });
+    }
+
+    await db.update(users).set({ poolName }).where(eq(users.id, req.dbUser.id));
+    res.json({ success: true, poolName });
+  } catch (error) {
+    res.status(500).json({ error: "Failed to claim pool name" });
+  }
+});
+
+// Pool standings from WhatsApp tracking (readable by all authenticated users)
+app.get("/api/pool-standings", requireAuth, async (_req: AuthRequest, res) => {
+  try {
+    const POOL_STANDINGS = [
+      { name: 'Kanav', balance: 250, betsPlaced: 5, betsWon: 3, trend: 'up' },
+      { name: 'Gaurav', balance: 30, betsPlaced: 3, betsWon: 2, trend: 'down' },
+      { name: 'Divij', balance: 0, betsPlaced: 3, betsWon: 1, trend: 'stable' },
+      { name: 'Jainam', balance: -20, betsPlaced: 3, betsWon: 1, trend: 'down' },
+      { name: 'Rohan', balance: -30, betsPlaced: 2, betsWon: 0, trend: 'down' },
+      { name: 'Darsh', balance: -30, betsPlaced: 1, betsWon: 0, trend: 'down' },
+      { name: 'Moksh', balance: -60, betsPlaced: 3, betsWon: 0, trend: 'down' },
+      { name: 'Mir', balance: -60, betsPlaced: 3, betsWon: 1, trend: 'down' },
+      { name: 'Heet', balance: -80, betsPlaced: 6, betsWon: 1, trend: 'down' },
+    ];
+
+    const RECENT_RESULTS = [
+      { match: 'Mexico 2-0 South Africa', date: '2026-06-12', winners: ['Only Heet bet (cancelled - no opposing bets)'], losers: [] },
+      { match: 'South Korea 2-1 Czechia', date: '2026-06-12', winners: ['Gaurav (+60)'], losers: ['Rohan (-30)', 'Heet (-30)'] },
+      { match: 'Canada 1-0 Bosnia', date: '2026-06-12', winners: ['Mir (+10)'], losers: ['Kanav (-10 draw)', 'Divij (-10 draw)', 'Moksh (-10)'] },
+      { match: 'USA 4-1 Paraguay', date: '2026-06-12', winners: ['Kanav (+10)', 'Heet (+10)', 'Jainam (+10)'], losers: ['Mir (-30 draw)'] },
+      { match: 'Qatar 0-0 Switzerland (Draw)', date: '2026-06-13', winners: ['Kanav (+90)'], losers: ['Divij (-30)', 'Heet (-30)', 'Jainam (-30)'] },
+      { match: 'Australia 1-0 Turkey', date: '2026-06-14', winners: ['Kanav (+120)'], losers: ['Moksh (-30 draw)', 'Heet (-30)', 'Darsh (-30)', 'Gaurav (-30)'] },
+    ];
+
+    const PENDING_BETS = [
+      {
+        match: 'Netherlands vs Japan',
+        date: '2026-06-15',
+        bets: [
+          { name: 'Kanav', pick: 'Netherlands' },
+          { name: 'Moksh', pick: 'Netherlands' },
+          { name: 'DJ', pick: 'Netherlands' },
+        ]
+      },
+      {
+        match: 'Ivory Coast vs Ecuador',
+        date: '2026-06-15',
+        bets: [
+          { name: 'Rohan', pick: 'Ivory Coast' },
+          { name: 'Kanav', pick: 'Ecuador' },
+        ]
+      }
+    ];
+
+    const claimedUsers = await db.select({ poolName: users.poolName, displayName: users.displayName, avatarUrl: users.avatarUrl }).from(users).where(
+      eq(users.poolName, users.poolName)
+    );
+    const claimed = claimedUsers.filter(u => u.poolName).reduce((acc, u) => {
+      acc[u.poolName!] = { displayName: u.displayName, avatarUrl: u.avatarUrl };
+      return acc;
+    }, {} as Record<string, { displayName: string | null; avatarUrl: string | null }>);
+
+    res.json({
+      standings: POOL_STANDINGS.sort((a, b) => b.balance - a.balance),
+      recentResults: RECENT_RESULTS,
+      pendingBets: PENDING_BETS,
+      gamesCompleted: 6,
+      totalPot: 0,
+      lastUpdated: '2026-06-14T21:00:00+08:00',
+      claimedUsers: claimed,
+    });
+  } catch (error) {
+    res.status(500).json({ error: "Failed to fetch pool standings" });
   }
 });
 
