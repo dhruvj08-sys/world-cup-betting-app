@@ -4,7 +4,6 @@ import { format, formatDistanceToNow, isPast } from 'date-fns';
 import { LogOut, Home, Calendar, Trophy, Zap, Database, Settings, Flame, DollarSign, Check, Clock, Target, X, ChevronRight, Users } from 'lucide-react';
 import MatchCard from './MatchCard';
 import PoolStandings from './PoolStandings';
-import PendingBets from './PendingBets';
 import RecentResults from './RecentResults';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
@@ -567,8 +566,8 @@ export default function Dashboard({ user, auth }: DashboardProps) {
                             {pendingForMatch && (
                               <div className="mx-2 -mt-1 mb-2 glass-card rounded-b-xl rounded-t-none px-4 py-2.5 border-t-0">
                                 <div className="flex items-center gap-2 mb-1.5">
-                                  <Flame className="w-3 h-3 text-amber-400" />
-                                  <span className="text-[10px] font-bold uppercase tracking-widest text-amber-400">Side Bets</span>
+                                  <Flame className="w-3 h-3 text-brand" />
+                                  <span className="text-[10px] font-bold uppercase tracking-widest text-brand">Bets</span>
                                 </div>
                                 <div className="flex flex-wrap gap-1.5">
                                   {pendingForMatch.bets.map((b, i) => (
@@ -973,11 +972,6 @@ export default function Dashboard({ user, auth }: DashboardProps) {
                     />
                   )}
 
-                  {/* Pending Side Bets */}
-                  {poolStandings?.pendingBets && (
-                    <PendingBets bets={poolStandings.pendingBets} />
-                  )}
-
                   {/* Match Results & Bets */}
                   {poolStandings && (
                     <RecentResults results={poolStandings.recentResults} />
@@ -1185,11 +1179,6 @@ export default function Dashboard({ user, auth }: DashboardProps) {
                       )}
                     </div>
                   </section>
-                )}
-
-                {/* Pending Bets Summary */}
-                {poolStandings?.pendingBets && poolStandings.pendingBets.length > 0 && (
-                  <PendingBets bets={poolStandings.pendingBets} variant="compact" />
                 )}
 
                 {/* Quick Intel */}
