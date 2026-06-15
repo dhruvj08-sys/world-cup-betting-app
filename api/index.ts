@@ -628,8 +628,9 @@ app.get("/api/pool-standings", requireAuth, async (_req: AuthRequest, res) => {
     for (const m of finishedMatches) {
       const result: 'teamA' | 'teamB' | 'draw' = m.scoreA! > m.scoreB! ? 'teamA' : (m.scoreA! < m.scoreB! ? 'teamB' : 'draw');
       const matchPicks = poolPicks.filter(p => p.matchId === m.id);
+      if (matchPicks.length === 0) continue;
 
-      if (matchPicks.length <= 1) {
+      if (matchPicks.length === 1) {
         settlements.push({ matchId: m.id, match: m, result, matchPicks, cancelled: true, winners: [], losers: [], winnerPayout: 0 });
         continue;
       }
