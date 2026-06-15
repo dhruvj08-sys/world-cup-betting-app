@@ -301,6 +301,7 @@ app.get("/api/leaderboard/:roomId", requireAuth, async (req: AuthRequest, res) =
       return {
         id: m.users.id,
         displayName: m.users.poolName || m.users.displayName || "Unknown",
+        poolName: m.users.poolName,
         avatarUrl: m.users.avatarUrl,
         points: score,
         accuracy: accuracy,
@@ -308,7 +309,7 @@ app.get("/api/leaderboard/:roomId", requireAuth, async (req: AuthRequest, res) =
         picksCount: userPicks.length,
         trend: 'same'
       };
-    }).filter(m => m.picksCount > 0).sort((a, b) => b.points - a.points);
+    }).filter(m => m.poolName).sort((a, b) => b.points - a.points);
 
     res.json(leaderboard);
   } catch (error) {

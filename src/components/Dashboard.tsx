@@ -263,6 +263,10 @@ export default function Dashboard({ user, auth }: DashboardProps) {
   const liveMatches = visibleMatches.filter(m => m.status === 'live');
   const lockedMatches = visibleMatches.filter(m => isPast(safeParseDate(m.lockTime)) && m.status !== 'finished' && m.status !== 'live');
   const finishedMatches = visibleMatches.filter(m => m.status === 'finished');
+  const recentFinished = finishedMatches.filter(m => {
+    const ko = safeParseDate(m.kickoffTime);
+    return (Date.now() - ko.getTime()) < 24 * 60 * 60 * 1000;
+  }).sort((a, b) => safeParseDate(b.kickoffTime).getTime() - safeParseDate(a.kickoffTime).getTime());
 
   // 5 tabs: Home, Matches, Standings, Money, Admin
   const navItems = [
@@ -540,6 +544,22 @@ export default function Dashboard({ user, auth }: DashboardProps) {
                       </div>
                       <div className="flex flex-col gap-3">
                         {liveMatches.map(m => (
+                          <MatchCard key={m.id} match={m} pick={picks.find(p => p.matchId === m.id)} onPick={handlePick} onClick={() => setSelectedMatch(m)} isPinned={pinnedMatches.includes(m.id)} onTogglePin={togglePin} />
+                        ))}
+                      </div>
+                    </section>
+                  )}
+
+                  {/* Recent Results — last 24h finished matches */}
+                  {recentFinished.length > 0 && (
+                    <section className="flex flex-col gap-3">
+                      <div className="flex items-center gap-2 px-1">
+                        <div className="w-1.5 h-5 bg-emerald-500 rounded-full" />
+                        <h2 className="text-sm font-extrabold uppercase tracking-wider text-white font-display">Recent Results</h2>
+                        <span className="text-[11px] text-emerald-400 font-bold bg-emerald-500/10 px-2.5 py-1 rounded-full border border-emerald-500/20">{recentFinished.length}</span>
+                      </div>
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                        {recentFinished.map(m => (
                           <MatchCard key={m.id} match={m} pick={picks.find(p => p.matchId === m.id)} onPick={handlePick} onClick={() => setSelectedMatch(m)} isPinned={pinnedMatches.includes(m.id)} onTogglePin={togglePin} />
                         ))}
                       </div>
@@ -1201,7 +1221,7 @@ export default function Dashboard({ user, auth }: DashboardProps) {
                         }
                       });
 
-                      finishedMatches.slice(0, 3).forEach(m => {
+                      recentFinished.slice(0, 3).forEach(m => {
                         intel.push({ icon: <Trophy className="w-4 h-4 text-accent-gold" />, title: "RESULT", titleColor: "text-amber-400", desc: `${m.teamA} ${m.scoreA}-${m.scoreB} ${m.teamB}` });
                       });
 
