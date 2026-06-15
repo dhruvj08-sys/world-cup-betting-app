@@ -18,6 +18,7 @@ interface MatchCardProps {
   isPinned?: boolean;
   onTogglePin?: (id: number) => void;
   compact?: boolean;
+  isGoalFlash?: boolean;
 }
 
 const POINTS_BY_STAGE: Record<string, number> = {
@@ -29,7 +30,7 @@ const POINTS_BY_STAGE: Record<string, number> = {
   "Final": 150
 };
 
-export default function MatchCard({ match, pick, onPick, onClick, isPinned, onTogglePin, compact }: MatchCardProps) {
+export default function MatchCard({ match, pick, onPick, onClick, isPinned, onTogglePin, compact, isGoalFlash }: MatchCardProps) {
   const parseDate = (d: any) => {
     if (typeof d === 'string') {
       let clean = d.replace(' ', 'T');
@@ -42,10 +43,10 @@ export default function MatchCard({ match, pick, onPick, onClick, isPinned, onTo
   const [now, setNow] = useState(new Date());
 
   useEffect(() => {
-    if (isPast(parseDate(match.lockTime))) return;
+    if (isPast(parseDate(match.lockTime)) && match.status !== 'live') return;
     const interval = setInterval(() => setNow(new Date()), 1000);
     return () => clearInterval(interval);
-  }, [match.lockTime]);
+  }, [match.lockTime, match.status]);
 
   const locked = parseDate(match.lockTime) <= now;
   const isLive = match.status === 'live';
@@ -112,13 +113,26 @@ export default function MatchCard({ match, pick, onPick, onClick, isPinned, onTo
     return cn(base, "bg-white/[0.06] hover:bg-brand/15 border-2 border-white/10 hover:border-brand/40 text-slate-200 hover:text-brand cursor-pointer hover:scale-[1.02] active:scale-[0.97]");
   };
 
+  // Compute elapsed match minute for live games
+  const getMatchMinute = () => {
+    if (!isLive) return null;
+    const kickoff = parseDate(match.kickoffTime);
+    const elapsed = Math.floor((now.getTime() - kickoff.getTime()) / 60000);
+    if (elapsed < 0) return null;
+    if (elapsed <= 45) return `${elapsed}'`;
+    if (elapsed <= 60) return '45+';
+    if (elapsed <= 105) return `${elapsed - 15}'`;
+    return '90+';
+  };
+
   return (
     <div
       onClick={onClick}
       className={cn(
         "rounded-2xl relative overflow-hidden flex flex-col transition-all cursor-pointer group border",
         compact ? "p-4 gap-3" : "p-5 md:p-6 gap-4",
-        cardStateClass
+        cardStateClass,
+        isGoalFlash && "goal-flash"
       )}
     >
       {/* Header Row */}
@@ -182,7 +196,7 @@ export default function MatchCard({ match, pick, onPick, onClick, isPinned, onTo
         {/* Score / Time */}
         <div className="flex items-center justify-center shrink-0 mx-4">
           <div className={cn(
-            "px-5 py-3 rounded-2xl font-display font-extrabold tabular-nums flex items-center justify-center min-w-[90px]",
+            "relative px-5 py-3 rounded-2xl font-display font-extrabold tabular-nums flex items-center justify-center min-w-[90px]",
             isLive
               ? "text-3xl md:text-4xl text-white bg-red-500/15 border-2 border-red-500/30"
               : isFinished
@@ -191,13 +205,18 @@ export default function MatchCard({ match, pick, onPick, onClick, isPinned, onTo
           )}>
             {locked && (isFinished || isLive) ? (
               <>
-                <span>{match.scoreA ?? 0}</span>
+                <span className={cn(isLive && "score-pulse")}>{match.scoreA ?? 0}</span>
                 <span className="text-slate-500 mx-2.5">:</span>
-                <span>{match.scoreB ?? 0}</span>
+                <span className={cn(isLive && "score-pulse")}>{match.scoreB ?? 0}</span>
               </>
             ) : (
               <span className="font-mono text-base text-white">{format(parseDate(match.kickoffTime), 'HH:mm')}</span>
             )}
+          {isLive && getMatchMinute() && (
+            <span className="absolute -bottom-0.5 left-1/2 -translate-x-1/2 text-[10px] font-bold text-red-400 bg-red-500/15 px-2 py-0.5 rounded-full border border-red-500/25">
+              {getMatchMinute()}
+            </span>
+          )}
           </div>
         </div>
 

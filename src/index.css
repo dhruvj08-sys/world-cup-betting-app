@@ -156,6 +156,27 @@ body {
   animation: glow-pulse 2s ease-in-out infinite;
 }
 
+@keyframes score-breathe {
+  0%, 100% { text-shadow: 0 0 8px rgba(239, 68, 68, 0.3); }
+  50% { text-shadow: 0 0 20px rgba(239, 68, 68, 0.6), 0 0 40px rgba(239, 68, 68, 0.2); }
+}
+
+.score-pulse {
+  animation: score-breathe 2s ease-in-out infinite;
+}
+
+@keyframes goal-flash-anim {
+  0% { box-shadow: 0 0 0 0 rgba(250, 204, 21, 0.7); }
+  20% { box-shadow: 0 0 40px 10px rgba(250, 204, 21, 0.5); background-color: rgba(250, 204, 21, 0.08); }
+  40% { box-shadow: 0 0 20px 5px rgba(250, 204, 21, 0.3); }
+  60% { box-shadow: 0 0 40px 10px rgba(250, 204, 21, 0.4); background-color: rgba(250, 204, 21, 0.05); }
+  100% { box-shadow: 0 0 0 0 rgba(250, 204, 21, 0); }
+}
+
+.goal-flash {
+  animation: goal-flash-anim 2s ease-out;
+}
+
 /* ─── Skeleton Loader ─── */
 .skeleton {
   background: linear-gradient(

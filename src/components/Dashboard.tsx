@@ -268,6 +268,13 @@ export default function Dashboard({ user, auth }: DashboardProps) {
     return (Date.now() - ko.getTime()) < 24 * 60 * 60 * 1000;
   }).sort((a, b) => safeParseDate(b.kickoffTime).getTime() - safeParseDate(a.kickoffTime).getTime());
 
+  // Matches locking within 60min that user hasn't picked (uses ALL matches, not filtered)
+  const unpickedLockingSoon = matches.filter(m => {
+    const lock = safeParseDate(m.lockTime);
+    const minsUntilLock = (lock.getTime() - Date.now()) / 60000;
+    return minsUntilLock > 0 && minsUntilLock <= 60 && !picks.find(p => p.matchId === m.id);
+  }).sort((a, b) => safeParseDate(a.lockTime).getTime() - safeParseDate(b.lockTime).getTime());
+
   // 5 tabs: Home, Matches, Standings, Money, Admin
   const navItems = [
     { id: 'dashboard', label: 'Home', icon: Home },
@@ -534,6 +541,42 @@ export default function Dashboard({ user, auth }: DashboardProps) {
               {/* ─── HOME TAB ─── */}
               {activeTab === 'dashboard' && (
                 <>
+                  {/* Pick Reminder Banner */}
+                  {unpickedLockingSoon.length > 0 && (
+                    <div className="relative overflow-hidden rounded-2xl border border-amber-500/30 bg-amber-500/10 backdrop-blur-sm p-4">
+                      <div className="flex items-start gap-3">
+                        <div className="w-8 h-8 rounded-full bg-amber-500/20 flex items-center justify-center flex-shrink-0 mt-0.5">
+                          <Clock className="w-4 h-4 text-amber-400" />
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-bold text-amber-300">
+                            {unpickedLockingSoon.length === 1 ? '1 match locks' : `${unpickedLockingSoon.length} matches lock`} soon!
+                          </p>
+                          <div className="mt-2 flex flex-col gap-1.5">
+                            {unpickedLockingSoon.map(m => {
+                              const minsLeft = Math.ceil((safeParseDate(m.lockTime).getTime() - Date.now()) / 60000);
+                              return (
+                                <button
+                                  key={m.id}
+                                  onClick={() => { setActiveTab('matches'); setSelectedMatch(m); }}
+                                  className="flex items-center justify-between gap-2 text-left hover:bg-white/5 rounded-lg px-2 py-1 -mx-2 transition-colors"
+                                >
+                                  <span className="text-xs font-semibold text-white truncate">{m.teamA} vs {m.teamB}</span>
+                                  <span className={cn(
+                                    "text-[11px] font-bold px-2 py-0.5 rounded-full whitespace-nowrap",
+                                    minsLeft <= 15 ? "bg-red-500/20 text-red-400 border border-red-500/30" : "bg-amber-500/20 text-amber-400 border border-amber-500/30"
+                                  )}>
+                                    {minsLeft}m left
+                                  </span>
+                                </button>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
                   {/* Live Matches — always on top */}
                   {liveMatches.length > 0 && (
                     <section className="flex flex-col gap-3">
@@ -544,7 +587,7 @@ export default function Dashboard({ user, auth }: DashboardProps) {
                       </div>
                       <div className="flex flex-col gap-3">
                         {liveMatches.map(m => (
-                          <MatchCard key={m.id} match={m} pick={picks.find(p => p.matchId === m.id)} onPick={handlePick} onClick={() => setSelectedMatch(m)} isPinned={pinnedMatches.includes(m.id)} onTogglePin={togglePin} />
+                          <MatchCard key={m.id} match={m} pick={picks.find(p => p.matchId === m.id)} onPick={handlePick} onClick={() => setSelectedMatch(m)} isPinned={pinnedMatches.includes(m.id)} onTogglePin={togglePin} isGoalFlash={goalEvent?.matchId === m.id} />
                         ))}
                       </div>
                     </section>
@@ -773,7 +816,7 @@ export default function Dashboard({ user, auth }: DashboardProps) {
                       </div>
                       <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
                         {liveMatches.map(m => (
-                          <MatchCard key={m.id} match={m} pick={picks.find(p => p.matchId === m.id)} onPick={handlePick} onClick={() => setSelectedMatch(m)} isPinned={pinnedMatches.includes(m.id)} onTogglePin={togglePin} />
+                          <MatchCard key={m.id} match={m} pick={picks.find(p => p.matchId === m.id)} onPick={handlePick} onClick={() => setSelectedMatch(m)} isPinned={pinnedMatches.includes(m.id)} onTogglePin={togglePin} isGoalFlash={goalEvent?.matchId === m.id} />
                         ))}
                       </div>
                     </section>

@@ -16,6 +16,33 @@ function mapApiFootballStatus(shortStatus: string): string {
   return 'scheduled';
 }
 
+const TEAM_ALIASES: Record<string, string[]> = {
+  'turkey': ['türkiye', 'turkiye'],
+  'czech republic': ['czechia'],
+  'bosnia and herzegovina': ['bosnia-herzegovina', 'bosnia'],
+  'ivory coast': ["côte d'ivoire", 'cote divoire'],
+  'dr congo': ['congo dr'],
+  'south korea': ['korea republic', 'korea'],
+  'united states': ['usa', 'us'],
+  'curacao': ['curaçao'],
+  'cape verde': ['cabo verde'],
+  'saudi arabia': ['ksa'],
+};
+
+function normalizeTeamName(name: string): string {
+  const lower = name.toLowerCase().trim();
+  for (const [canonical, aliases] of Object.entries(TEAM_ALIASES)) {
+    if (canonical === lower || aliases.includes(lower)) return canonical;
+  }
+  return lower;
+}
+
+function teamsMatch(dbTeam: string, espnTeam: string): boolean {
+  const a = normalizeTeamName(dbTeam);
+  const b = normalizeTeamName(espnTeam);
+  return a === b || a.includes(b) || b.includes(a);
+}
+
 // API endpoints
 
 // Return current user session
@@ -457,16 +484,16 @@ app.get("/api/cron/update-scores", async (req, res) => {
       if (!event || !event.competitions?.[0]) continue;
 
       const comp = event.competitions[0];
-      const home = comp.competitors.find(c => c.homeAway === 'home');
-      const away = comp.competitors.find(c => c.homeAway === 'away');
       const espnStatus = comp.status?.type?.name;
 
       let newStatus = match.status;
       if (espnStatus === 'STATUS_FULL_TIME') newStatus = 'finished';
       else if (['STATUS_IN_PROGRESS', 'STATUS_HALFTIME', 'STATUS_FIRST_HALF', 'STATUS_SECOND_HALF'].includes(espnStatus)) newStatus = 'live';
 
-      const scoreA = home ? parseInt(home.score) : null;
-      const scoreB = away ? parseInt(away.score) : null;
+      const teamAComp = comp.competitors.find(c => teamsMatch(match.teamA, c.team.displayName));
+      const teamBComp = comp.competitors.find(c => teamsMatch(match.teamB, c.team.displayName));
+      const scoreA = teamAComp ? parseInt(teamAComp.score) : null;
+      const scoreB = teamBComp ? parseInt(teamBComp.score) : null;
 
       const updateData: Record<string, unknown> = { status: newStatus };
       if (scoreA !== null && !isNaN(scoreA)) updateData.scoreA = scoreA;
@@ -641,14 +668,21 @@ app.get("/api/pool-standings", requireAuth, async (_req: AuthRequest, res) => {
       const matchPicks = poolPicks.filter(p => p.matchId === m.id);
       if (matchPicks.length === 0) continue;
 
-      if (matchPicks.length === 1) {
+      if (matchPicks.length <= 1) {
         settlements.push({ matchId: m.id, match: m, result, matchPicks, cancelled: true, winners: [], losers: [], winnerPayout: 0, betAmount });
         continue;
       }
 
       const winners = matchPicks.filter(p => p.selection === result);
       const losers = matchPicks.filter(p => p.selection !== result);
-      const winnerPayout = winners.length > 0 ? (losers.length * betAmount) / winners.length : 0;
+
+      // No winners = cancelled (zero-sum: can't take from losers with no one to pay)
+      if (winners.length === 0) {
+        settlements.push({ matchId: m.id, match: m, result, matchPicks, cancelled: true, winners: [], losers: [], winnerPayout: 0, betAmount });
+        continue;
+      }
+
+      const winnerPayout = (losers.length * betAmount) / winners.length;
 
       settlements.push({ matchId: m.id, match: m, result, matchPicks, cancelled: false, winners, losers, winnerPayout, betAmount });
     }
@@ -706,11 +740,19 @@ app.get("/api/pool-standings", requireAuth, async (_req: AuthRequest, res) => {
       const date = new Date(m.kickoffTime).toISOString();
 
       if (s.cancelled) {
-        const bettorName = s.matchPicks.length === 1 ? s.matchPicks[0].poolName : 'Unknown';
+        let reason: string;
+        if (s.matchPicks.length === 0) {
+          reason = 'No bets placed';
+        } else if (s.matchPicks.length === 1) {
+          reason = `Only ${s.matchPicks[0].poolName} bet — no opponent, $0 pool money (pts still count)`;
+        } else {
+          const names = s.matchPicks.map(p => p.poolName).join(', ');
+          reason = `No winners — ${names} all picked wrong, $0 exchanged`;
+        }
         recentResults.push({
           match: matchLabel,
           date,
-          winners: [`Only ${bettorName} bet — no opponent, $0 pool money (pts still count)`],
+          winners: [reason],
           losers: [],
         });
         continue;
@@ -718,22 +760,13 @@ app.get("/api/pool-standings", requireAuth, async (_req: AuthRequest, res) => {
 
       const winnersArr: string[] = [];
       const losersArr: string[] = [];
-
-      if (s.winners.length === 0) {
-        // No winners: all bettors lose
-        for (const p of s.matchPicks) {
-          const suffix = p.selection === 'draw' ? ' draw' : '';
-          losersArr.push(`${p.poolName} (-$${s.betAmount})${suffix}`);
-        }
-      } else {
-        const payout = Math.round(s.winnerPayout);
-        for (const w of s.winners) {
-          winnersArr.push(`${w.poolName} (+$${payout})`);
-        }
-        for (const l of s.losers) {
-          const suffix = l.selection === 'draw' && s.result !== 'draw' ? ' draw' : '';
-          losersArr.push(`${l.poolName} (-$${s.betAmount})${suffix}`);
-        }
+      const payout = Math.round(s.winnerPayout);
+      for (const w of s.winners) {
+        winnersArr.push(`${w.poolName} (+$${payout})`);
+      }
+      for (const l of s.losers) {
+        const suffix = l.selection === 'draw' && s.result !== 'draw' ? ' draw' : '';
+        losersArr.push(`${l.poolName} (-$${s.betAmount})${suffix}`);
       }
 
       recentResults.push({ match: matchLabel, date, winners: winnersArr, losers: losersArr });

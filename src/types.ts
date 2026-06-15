@@ -25,6 +25,7 @@ export interface Match {
   scoreB: number | null;
   status: 'scheduled' | 'live' | 'finished' | 'cancelled';
   poolStatus: 'eligible' | 'excluded';
+  matchMinute?: string | null;
   result?: string;
   createdAt: string;
 }
