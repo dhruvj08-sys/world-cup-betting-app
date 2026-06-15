@@ -13,12 +13,6 @@
       }
     }
   ],
-  "crons": [
-    {
-      "path": "/api/cron/update-scores",
-      "schedule": "*/2 * * * *"
-    }
-  ],
   "rewrites": [
     {
       "source": "/api/(.*)",
