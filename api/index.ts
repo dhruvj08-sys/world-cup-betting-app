@@ -589,68 +589,180 @@ app.post("/api/me/claim-pool-name", requireAuth, async (req: AuthRequest, res) =
   }
 });
 
-// Pool standings from WhatsApp tracking (readable by all authenticated users)
+// Pool standings computed from picks + matches (readable by all authenticated users)
 app.get("/api/pool-standings", requireAuth, async (_req: AuthRequest, res) => {
   try {
-    const POOL_STANDINGS = [
-      { name: 'Kanav', balance: 250, betsPlaced: 5, betsWon: 3, trend: 'up' },
-      { name: 'Gaurav', balance: 30, betsPlaced: 3, betsWon: 2, trend: 'down' },
-      { name: 'Divij', balance: 0, betsPlaced: 3, betsWon: 1, trend: 'stable' },
-      { name: 'Jainam', balance: -20, betsPlaced: 3, betsWon: 1, trend: 'down' },
-      { name: 'Rohan', balance: -30, betsPlaced: 2, betsWon: 0, trend: 'down' },
-      { name: 'Darsh', balance: -30, betsPlaced: 1, betsWon: 0, trend: 'down' },
-      { name: 'Moksh', balance: -60, betsPlaced: 3, betsWon: 0, trend: 'down' },
-      { name: 'Mir', balance: -60, betsPlaced: 3, betsWon: 1, trend: 'down' },
-      { name: 'Heet', balance: -80, betsPlaced: 6, betsWon: 1, trend: 'down' },
-    ];
+    const BET_AMOUNT = 30;
 
-    const RECENT_RESULTS = [
-      { match: 'Mexico 2-0 South Africa', date: '2026-06-12', winners: ['Only Heet bet (cancelled - no opposing bets)'], losers: [] },
-      { match: 'South Korea 2-1 Czechia', date: '2026-06-12', winners: ['Gaurav (+60)'], losers: ['Rohan (-30)', 'Heet (-30)'] },
-      { match: 'Canada 1-0 Bosnia', date: '2026-06-12', winners: ['Mir (+10)'], losers: ['Kanav (-10 draw)', 'Divij (-10 draw)', 'Moksh (-10)'] },
-      { match: 'USA 4-1 Paraguay', date: '2026-06-12', winners: ['Kanav (+10)', 'Heet (+10)', 'Jainam (+10)'], losers: ['Mir (-30 draw)'] },
-      { match: 'Qatar 0-0 Switzerland (Draw)', date: '2026-06-13', winners: ['Kanav (+90)'], losers: ['Divij (-30)', 'Heet (-30)', 'Jainam (-30)'] },
-      { match: 'Australia 1-0 Turkey', date: '2026-06-14', winners: ['Kanav (+120)'], losers: ['Moksh (-30 draw)', 'Heet (-30)', 'Darsh (-30)', 'Gaurav (-30)'] },
-    ];
+    // 1. Fetch all data
+    const [allMatches, allPicksWithUsers, poolUsers] = await Promise.all([
+      db.select().from(matches).orderBy(asc(matches.kickoffTime)),
+      db.select({
+        id: picks.id,
+        userId: picks.userId,
+        matchId: picks.matchId,
+        selection: picks.selection,
+        poolName: users.poolName,
+      }).from(picks).innerJoin(users, eq(picks.userId, users.id)),
+      db.select({ poolName: users.poolName, displayName: users.displayName, avatarUrl: users.avatarUrl }).from(users),
+    ]);
 
-    const PENDING_BETS = [
-      {
-        match: 'Netherlands vs Japan',
-        date: '2026-06-15',
-        bets: [
-          { name: 'Kanav', pick: 'Netherlands' },
-          { name: 'Moksh', pick: 'Netherlands' },
-          { name: 'DJ', pick: 'Netherlands' },
-        ]
-      },
-      {
-        match: 'Ivory Coast vs Ecuador',
-        date: '2026-06-15',
-        bets: [
-          { name: 'Rohan', pick: 'Ivory Coast' },
-          { name: 'Kanav', pick: 'Ecuador' },
-        ]
+    // Only picks from users with a poolName
+    const poolPicks = allPicksWithUsers.filter(p => p.poolName);
+
+    // 2. Settle each finished match
+    type Settlement = {
+      matchId: number;
+      match: typeof allMatches[number];
+      result: 'teamA' | 'teamB' | 'draw';
+      matchPicks: typeof poolPicks;
+      cancelled: boolean;
+      winners: typeof poolPicks;
+      losers: typeof poolPicks;
+      winnerPayout: number;
+    };
+    const settlements: Settlement[] = [];
+
+    const finishedMatches = allMatches.filter(m => m.status === 'finished' && m.scoreA !== null && m.scoreB !== null);
+
+    for (const m of finishedMatches) {
+      const result: 'teamA' | 'teamB' | 'draw' = m.scoreA! > m.scoreB! ? 'teamA' : (m.scoreA! < m.scoreB! ? 'teamB' : 'draw');
+      const matchPicks = poolPicks.filter(p => p.matchId === m.id);
+
+      if (matchPicks.length <= 1) {
+        settlements.push({ matchId: m.id, match: m, result, matchPicks, cancelled: true, winners: [], losers: [], winnerPayout: 0 });
+        continue;
       }
-    ];
 
-    const claimedUsers = await db.select({ poolName: users.poolName, displayName: users.displayName, avatarUrl: users.avatarUrl }).from(users).where(
-      eq(users.poolName, users.poolName)
-    );
-    const claimed = claimedUsers.filter(u => u.poolName).reduce((acc, u) => {
+      const winners = matchPicks.filter(p => p.selection === result);
+      const losers = matchPicks.filter(p => p.selection !== result);
+      const winnerPayout = winners.length > 0 ? (losers.length * BET_AMOUNT) / winners.length : 0;
+
+      settlements.push({ matchId: m.id, match: m, result, matchPicks, cancelled: false, winners, losers, winnerPayout });
+    }
+
+    // 3. Build standings
+    const balances: Record<string, { balance: number; betsPlaced: number; betsWon: number; lastSettledWin: boolean | null }> = {};
+
+    // Init all pool users
+    for (const u of poolUsers) {
+      if (u.poolName) {
+        balances[u.poolName] = { balance: 0, betsPlaced: 0, betsWon: 0, lastSettledWin: null };
+      }
+    }
+
+    // Sort settlements by kickoff time for trend calculation
+    const sortedSettlements = settlements.filter(s => !s.cancelled).sort((a, b) => new Date(a.match.kickoffTime).getTime() - new Date(b.match.kickoffTime).getTime());
+
+    for (const s of sortedSettlements) {
+      for (const w of s.winners) {
+        const name = w.poolName!;
+        if (!balances[name]) balances[name] = { balance: 0, betsPlaced: 0, betsWon: 0, lastSettledWin: null };
+        balances[name].balance += Math.round(s.winnerPayout);
+        balances[name].betsPlaced++;
+        balances[name].betsWon++;
+        balances[name].lastSettledWin = true;
+      }
+      for (const l of s.losers) {
+        const name = l.poolName!;
+        if (!balances[name]) balances[name] = { balance: 0, betsPlaced: 0, betsWon: 0, lastSettledWin: null };
+        balances[name].balance -= BET_AMOUNT;
+        balances[name].betsPlaced++;
+        balances[name].lastSettledWin = false;
+      }
+    }
+
+    const standings = Object.entries(balances).map(([name, data]) => ({
+      name,
+      balance: data.balance,
+      betsPlaced: data.betsPlaced,
+      betsWon: data.betsWon,
+      trend: data.lastSettledWin === true ? 'up' : data.lastSettledWin === false ? 'down' : 'stable',
+    })).sort((a, b) => b.balance - a.balance);
+
+    // 4. Build recentResults
+    const recentResults: { match: string; date: string; winners: string[]; losers: string[] }[] = [];
+
+    for (const s of settlements.sort((a, b) => new Date(a.match.kickoffTime).getTime() - new Date(b.match.kickoffTime).getTime())) {
+      const m = s.match;
+      const isDraw = m.scoreA === m.scoreB;
+      const matchLabel = `${m.teamA} ${m.scoreA}-${m.scoreB} ${m.teamB}${isDraw ? ' (Draw)' : ''}`;
+      const date = new Date(m.kickoffTime).toISOString();
+
+      if (s.cancelled) {
+        const bettorName = s.matchPicks.length === 1 ? s.matchPicks[0].poolName : 'Unknown';
+        recentResults.push({
+          match: matchLabel,
+          date,
+          winners: [`Only ${bettorName} bet (cancelled)`],
+          losers: [],
+        });
+        continue;
+      }
+
+      const winnersArr: string[] = [];
+      const losersArr: string[] = [];
+
+      if (s.winners.length === 0) {
+        // No winners: all bettors lose
+        for (const p of s.matchPicks) {
+          const suffix = p.selection === 'draw' ? ' draw' : '';
+          losersArr.push(`${p.poolName} (-$${BET_AMOUNT})${suffix}`);
+        }
+      } else {
+        const payout = Math.round(s.winnerPayout);
+        for (const w of s.winners) {
+          winnersArr.push(`${w.poolName} (+$${payout})`);
+        }
+        for (const l of s.losers) {
+          const suffix = l.selection === 'draw' && s.result !== 'draw' ? ' draw' : '';
+          losersArr.push(`${l.poolName} (-$${BET_AMOUNT})${suffix}`);
+        }
+      }
+
+      recentResults.push({ match: matchLabel, date, winners: winnersArr, losers: losersArr });
+    }
+
+    // 5. Build pendingBets
+    const pendingMatches = allMatches.filter(m => m.status !== 'finished' && m.status !== 'cancelled');
+    const pendingBets: { matchId: number; match: string; date: string; bets: { name: string; pick: string }[] }[] = [];
+
+    for (const m of pendingMatches) {
+      const matchPicks = poolPicks.filter(p => p.matchId === m.id);
+      if (matchPicks.length === 0) continue;
+
+      const bets = matchPicks.map(p => ({
+        name: p.poolName!,
+        pick: p.selection === 'teamA' ? m.teamA : p.selection === 'teamB' ? m.teamB : 'Draw',
+      }));
+
+      pendingBets.push({
+        matchId: m.id,
+        match: `${m.teamA} vs ${m.teamB}`,
+        date: new Date(m.kickoffTime).toISOString(),
+        bets,
+      });
+    }
+
+    // 6. Compute gamesCompleted (finished matches with 2+ bettors, not cancelled)
+    const gamesCompleted = settlements.filter(s => !s.cancelled).length;
+
+    // 7. Build claimedUsers
+    const claimed = poolUsers.filter(u => u.poolName).reduce((acc, u) => {
       acc[u.poolName!] = { displayName: u.displayName, avatarUrl: u.avatarUrl };
       return acc;
     }, {} as Record<string, { displayName: string | null; avatarUrl: string | null }>);
 
     res.json({
-      standings: POOL_STANDINGS.sort((a, b) => b.balance - a.balance),
-      recentResults: RECENT_RESULTS,
-      pendingBets: PENDING_BETS,
-      gamesCompleted: 6,
-      totalPot: 0,
-      lastUpdated: '2026-06-14T21:00:00+08:00',
+      standings,
+      recentResults,
+      pendingBets,
+      gamesCompleted,
+      lastUpdated: new Date().toISOString(),
       claimedUsers: claimed,
     });
   } catch (error) {
+    console.error(error);
     res.status(500).json({ error: "Failed to fetch pool standings" });
   }
 });

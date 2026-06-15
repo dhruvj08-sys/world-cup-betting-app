@@ -21,6 +21,7 @@ interface DashboardProps {
 }
 
 interface PendingBet {
+  matchId: number;
   match: string;
   date: string;
   bets: Array<{ name: string; pick: string }>;
@@ -558,7 +559,7 @@ export default function Dashboard({ user, auth }: DashboardProps) {
                         </div>
                       ) : upcomingMatches.slice(0, 6).map(m => {
                         const pendingForMatch = poolStandings?.pendingBets?.find(pb =>
-                          m.teamA && m.teamB && pb.match.includes(m.teamA.split(' ')[0]) || pb.match.includes(m.teamB.split(' ')[0])
+                          pb.matchId === m.id
                         );
                         return (
                           <div key={m.id} className="flex flex-col gap-0">
