@@ -30,7 +30,7 @@ export default function PoolStandings({ standings, gamesCompleted, lastUpdated, 
         <h2 className="text-base font-extrabold uppercase tracking-wider text-white font-display flex items-center gap-2">
           <DollarSign className="w-5 h-5 text-brand" /> Pool Standings
         </h2>
-        <span className="text-[11px] text-slate-400 font-bold bg-white/5 px-2.5 py-1 rounded-full">{gamesCompleted} games · $30/bet</span>
+        <span className="text-[11px] text-slate-400 font-bold bg-white/5 px-2.5 py-1 rounded-full">{gamesCompleted} games settled</span>
       </div>
       <div className="divide-y divide-white/[0.04]">
         {standings.map((p, idx) => {

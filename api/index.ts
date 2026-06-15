@@ -297,17 +297,18 @@ app.get("/api/leaderboard/:roomId", requireAuth, async (req: AuthRequest, res) =
       const userPicks = allPicks.filter(p => p.userId === m.users.id);
       const { score, accuracy } = calculateScore(matchDTOs, userPicks);
       const compliance = getCurrentComplianceStatus(matchDTOs, userPicks);
-      
+
       return {
         id: m.users.id,
-        displayName: m.users.displayName || "Unknown",
+        displayName: m.users.poolName || m.users.displayName || "Unknown",
         avatarUrl: m.users.avatarUrl,
         points: score,
         accuracy: accuracy,
         compliance,
-        trend: 'same' // We can improve trend calculation later
+        picksCount: userPicks.length,
+        trend: 'same'
       };
-    }).sort((a, b) => b.points - a.points);
+    }).filter(m => m.picksCount > 0).sort((a, b) => b.points - a.points);
 
     res.json(leaderboard);
   } catch (error) {
@@ -592,7 +593,10 @@ app.post("/api/me/claim-pool-name", requireAuth, async (req: AuthRequest, res) =
 // Pool standings computed from picks + matches (readable by all authenticated users)
 app.get("/api/pool-standings", requireAuth, async (_req: AuthRequest, res) => {
   try {
-    const BET_AMOUNT = 30;
+    const BET_BY_STAGE: Record<string, number> = {
+      'Group Stage': 30, 'Round of 32': 40, 'Round of 16': 50,
+      'Quarter-finals': 80, 'Semi-finals': 100, 'Final': 150,
+    };
 
     // 1. Fetch all data
     const [allMatches, allPicksWithUsers, poolUsers] = await Promise.all([
@@ -620,6 +624,7 @@ app.get("/api/pool-standings", requireAuth, async (_req: AuthRequest, res) => {
       winners: typeof poolPicks;
       losers: typeof poolPicks;
       winnerPayout: number;
+      betAmount: number;
     };
     const settlements: Settlement[] = [];
 
@@ -627,19 +632,20 @@ app.get("/api/pool-standings", requireAuth, async (_req: AuthRequest, res) => {
 
     for (const m of finishedMatches) {
       const result: 'teamA' | 'teamB' | 'draw' = m.scoreA! > m.scoreB! ? 'teamA' : (m.scoreA! < m.scoreB! ? 'teamB' : 'draw');
+      const betAmount = BET_BY_STAGE[m.stage] || 30;
       const matchPicks = poolPicks.filter(p => p.matchId === m.id);
       if (matchPicks.length === 0) continue;
 
       if (matchPicks.length === 1) {
-        settlements.push({ matchId: m.id, match: m, result, matchPicks, cancelled: true, winners: [], losers: [], winnerPayout: 0 });
+        settlements.push({ matchId: m.id, match: m, result, matchPicks, cancelled: true, winners: [], losers: [], winnerPayout: 0, betAmount });
         continue;
       }
 
       const winners = matchPicks.filter(p => p.selection === result);
       const losers = matchPicks.filter(p => p.selection !== result);
-      const winnerPayout = winners.length > 0 ? (losers.length * BET_AMOUNT) / winners.length : 0;
+      const winnerPayout = winners.length > 0 ? (losers.length * betAmount) / winners.length : 0;
 
-      settlements.push({ matchId: m.id, match: m, result, matchPicks, cancelled: false, winners, losers, winnerPayout });
+      settlements.push({ matchId: m.id, match: m, result, matchPicks, cancelled: false, winners, losers, winnerPayout, betAmount });
     }
 
     // 3. Build standings
@@ -667,7 +673,7 @@ app.get("/api/pool-standings", requireAuth, async (_req: AuthRequest, res) => {
       for (const l of s.losers) {
         const name = l.poolName!;
         if (!balances[name]) balances[name] = { balance: 0, betsPlaced: 0, betsWon: 0, lastSettledWin: null };
-        balances[name].balance -= BET_AMOUNT;
+        balances[name].balance -= s.betAmount;
         balances[name].betsPlaced++;
         balances[name].lastSettledWin = false;
       }
@@ -708,7 +714,7 @@ app.get("/api/pool-standings", requireAuth, async (_req: AuthRequest, res) => {
         // No winners: all bettors lose
         for (const p of s.matchPicks) {
           const suffix = p.selection === 'draw' ? ' draw' : '';
-          losersArr.push(`${p.poolName} (-$${BET_AMOUNT})${suffix}`);
+          losersArr.push(`${p.poolName} (-$${s.betAmount})${suffix}`);
         }
       } else {
         const payout = Math.round(s.winnerPayout);
@@ -717,7 +723,7 @@ app.get("/api/pool-standings", requireAuth, async (_req: AuthRequest, res) => {
         }
         for (const l of s.losers) {
           const suffix = l.selection === 'draw' && s.result !== 'draw' ? ' draw' : '';
-          losersArr.push(`${l.poolName} (-$${BET_AMOUNT})${suffix}`);
+          losersArr.push(`${l.poolName} (-$${s.betAmount})${suffix}`);
         }
       }
 

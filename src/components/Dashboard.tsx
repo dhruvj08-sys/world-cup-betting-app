@@ -573,9 +573,6 @@ export default function Dashboard({ user, auth }: DashboardProps) {
                                 <div className="flex flex-wrap gap-1.5">
                                   {pendingForMatch.bets.map((b, i) => (
                                     <span key={i} className="inline-flex items-center gap-1.5 text-[11px] font-bold bg-white/[0.06] border border-white/10 px-2.5 py-1 rounded-lg">
-                                      <span className="w-5 h-5 rounded-full bg-surface-base border border-white/10 flex items-center justify-center text-[9px] font-extrabold text-slate-300">
-                                        {b.name.substring(0, 2).toUpperCase()}
-                                      </span>
                                       <span className="text-white">{b.name}</span>
                                       <span className="text-slate-500">→</span>
                                       <span className="text-brand">{b.pick}</span>
@@ -1151,7 +1148,7 @@ export default function Dashboard({ user, auth }: DashboardProps) {
                   <section className="glass-card overflow-hidden">
                     <div className="px-5 pt-5 pb-3 border-b border-surface-border flex items-center justify-between">
                       <h2 className="text-sm font-extrabold uppercase tracking-wider text-white font-display flex items-center gap-2">
-                        <Trophy className="w-4 h-4 text-accent-gold" /> The Boys
+                        <Trophy className="w-4 h-4 text-accent-gold" /> Leaderboard
                       </h2>
                       <span className="text-[10px] text-slate-500 font-bold uppercase tracking-widest">{poolStandings.gamesCompleted}G</span>
                     </div>
