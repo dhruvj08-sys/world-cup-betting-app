@@ -403,7 +403,7 @@ app.post("/api/webhook/sports-data", express.json(), async (req: express.Request
   }
 });
 
-// Cron: Update live scores from API-Football
+// Cron: Update live scores from ESPN (free, no API key needed)
 app.get("/api/cron/update-scores", async (req, res) => {
   const authHeader = req.headers.authorization;
   const cronSecret = process.env.CRON_SECRET;
@@ -415,12 +415,6 @@ app.get("/api/cron/update-scores", async (req, res) => {
   }
 
   try {
-    const apiKey = process.env.API_FOOTBALL_KEY;
-    if (!apiKey) {
-      return res.status(500).json({ error: "API_FOOTBALL_KEY not configured" });
-    }
-
-    // Find matches that are live or starting soon (within 30 min)
     const now = new Date();
     const soon = new Date(now.getTime() + 30 * 60 * 1000);
     const recentCutoff = new Date(now.getTime() - 4 * 60 * 60 * 1000);
@@ -429,7 +423,6 @@ app.get("/api/cron/update-scores", async (req, res) => {
       eq(matches.poolStatus, 'eligible')
     );
 
-    // Filter to matches that are live or starting soon
     const matchesToCheck = activeMatches.filter(m => {
       const kickoff = new Date(m.kickoffTime);
       return (m.status === 'live') ||
@@ -440,37 +433,48 @@ app.get("/api/cron/update-scores", async (req, res) => {
       return res.json({ updated: 0, checked: 0, message: "No active matches" });
     }
 
-    // Batch fetch from API-Football (up to 20 IDs)
-    const externalIds = matchesToCheck
-      .filter(m => m.externalId)
-      .map(m => m.externalId)
-      .slice(0, 20);
-
-    if (externalIds.length === 0) {
-      return res.json({ updated: 0, checked: 0, message: "No external IDs mapped" });
-    }
-
-    const apiRes = await fetch(
-      `https://v3.football.api-sports.io/fixtures?ids=${externalIds.join('-')}`,
-      { headers: { 'x-apisports-key': apiKey } }
+    // Fetch today's WC scoreboard from ESPN (free, no auth)
+    const dateStr = now.toISOString().slice(0, 10).replace(/-/g, '');
+    const espnRes = await fetch(
+      `https://site.api.espn.com/apis/site/v2/sports/soccer/fifa.world/scoreboard?dates=${dateStr}`
     );
-    const apiData = await apiRes.json();
+    const espnData = await espnRes.json() as {
+      events?: Array<{
+        id: string;
+        competitions: Array<{
+          competitors: Array<{ homeAway: string; score: string; team: { displayName: string } }>;
+          status: { type: { name: string } };
+        }>;
+      }>;
+    };
+
+    const espnEvents = espnData.events || [];
 
     let updated = 0;
-    for (const fixture of (apiData.response || [])) {
-      const extId = fixture.fixture.id.toString();
-      const match = matchesToCheck.find(m => m.externalId === extId);
-      if (!match) continue;
+    for (const match of matchesToCheck) {
+      if (!match.externalId) continue;
+      const event = espnEvents.find(e => e.id === match.externalId);
+      if (!event || !event.competitions?.[0]) continue;
 
-      const newStatus = mapApiFootballStatus(fixture.fixture.status.short);
-      const updateData: any = { status: newStatus };
-      if (fixture.goals?.home !== null) updateData.scoreA = fixture.goals.home;
-      if (fixture.goals?.away !== null) updateData.scoreB = fixture.goals.away;
+      const comp = event.competitions[0];
+      const home = comp.competitors.find(c => c.homeAway === 'home');
+      const away = comp.competitors.find(c => c.homeAway === 'away');
+      const espnStatus = comp.status?.type?.name;
+
+      let newStatus = match.status;
+      if (espnStatus === 'STATUS_FULL_TIME') newStatus = 'finished';
+      else if (['STATUS_IN_PROGRESS', 'STATUS_HALFTIME', 'STATUS_FIRST_HALF', 'STATUS_SECOND_HALF'].includes(espnStatus)) newStatus = 'live';
+
+      const scoreA = home ? parseInt(home.score) : null;
+      const scoreB = away ? parseInt(away.score) : null;
+
+      const updateData: Record<string, unknown> = { status: newStatus };
+      if (scoreA !== null && !isNaN(scoreA)) updateData.scoreA = scoreA;
+      if (scoreB !== null && !isNaN(scoreB)) updateData.scoreB = scoreB;
 
       await db.update(matches).set(updateData).where(eq(matches.id, match.id));
 
-      // Create scoreEvents when a match transitions to finished
-      if (newStatus === 'finished' && match.status !== 'finished' && updateData.scoreA !== undefined && updateData.scoreB !== undefined) {
+      if (newStatus === 'finished' && match.status !== 'finished' && typeof updateData.scoreA === 'number' && typeof updateData.scoreB === 'number') {
         const result = updateData.scoreA > updateData.scoreB ? 'teamA' : (updateData.scoreA < updateData.scoreB ? 'teamB' : 'draw');
         const stagePoints = POINTS_BY_STAGE[match.stage] || 0;
         const matchPicks = await db.select().from(picks).where(eq(picks.matchId, match.id));
@@ -489,7 +493,7 @@ app.get("/api/cron/update-scores", async (req, res) => {
       updated++;
     }
 
-    res.json({ updated, checked: matchesToCheck.length });
+    res.json({ updated, checked: matchesToCheck.length, espnEvents: espnEvents.length });
   } catch (error) {
     console.error("Cron update error:", error);
     res.status(500).json({ error: "Failed to update scores" });
@@ -686,7 +690,11 @@ app.get("/api/pool-standings", requireAuth, async (_req: AuthRequest, res) => {
       betsPlaced: data.betsPlaced,
       betsWon: data.betsWon,
       trend: data.lastSettledWin === true ? 'up' : data.lastSettledWin === false ? 'down' : 'stable',
-    })).sort((a, b) => b.balance - a.balance);
+    })).sort((a, b) => {
+      if (a.betsPlaced === 0 && b.betsPlaced > 0) return 1;
+      if (b.betsPlaced === 0 && a.betsPlaced > 0) return -1;
+      return b.balance - a.balance;
+    });
 
     // 4. Build recentResults
     const recentResults: { match: string; date: string; winners: string[]; losers: string[] }[] = [];
@@ -702,7 +710,7 @@ app.get("/api/pool-standings", requireAuth, async (_req: AuthRequest, res) => {
         recentResults.push({
           match: matchLabel,
           date,
-          winners: [`Only ${bettorName} bet (cancelled)`],
+          winners: [`Only ${bettorName} bet — no opponent, $0 pool money (pts still count)`],
           losers: [],
         });
         continue;
