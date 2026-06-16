@@ -460,22 +460,31 @@ app.get("/api/cron/update-scores", async (req, res) => {
       return res.json({ updated: 0, checked: 0, message: "No active matches" });
     }
 
-    // Fetch today's WC scoreboard from ESPN (free, no auth)
+    // Fetch today's + yesterday's WC scoreboard from ESPN (matches spanning midnight)
     const dateStr = now.toISOString().slice(0, 10).replace(/-/g, '');
-    const espnRes = await fetch(
-      `https://site.api.espn.com/apis/site/v2/sports/soccer/fifa.world/scoreboard?dates=${dateStr}`
-    );
-    const espnData = await espnRes.json() as {
-      events?: Array<{
-        id: string;
-        competitions: Array<{
-          competitors: Array<{ homeAway: string; score: string; team: { displayName: string } }>;
-          status: { type: { name: string } };
-        }>;
+    const yesterday = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+    const yesterdayStr = yesterday.toISOString().slice(0, 10).replace(/-/g, '');
+
+    type EspnEvent = {
+      id: string;
+      competitions: Array<{
+        competitors: Array<{ homeAway: string; score: string; team: { displayName: string } }>;
+        status: { type: { name: string } };
       }>;
     };
 
-    const espnEvents = espnData.events || [];
+    const [todayRes, yesterdayRes] = await Promise.all([
+      fetch(`https://site.api.espn.com/apis/site/v2/sports/soccer/fifa.world/scoreboard?dates=${dateStr}`),
+      fetch(`https://site.api.espn.com/apis/site/v2/sports/soccer/fifa.world/scoreboard?dates=${yesterdayStr}`),
+    ]);
+    const todayData = await todayRes.json() as { events?: EspnEvent[] };
+    const yesterdayData = await yesterdayRes.json() as { events?: EspnEvent[] };
+
+    const seenIds = new Set<string>();
+    const espnEvents: EspnEvent[] = [];
+    for (const ev of [...(yesterdayData.events || []), ...(todayData.events || [])]) {
+      if (!seenIds.has(ev.id)) { seenIds.add(ev.id); espnEvents.push(ev); }
+    }
 
     let updated = 0;
     for (const match of matchesToCheck) {
